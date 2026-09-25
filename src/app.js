@@ -3,7 +3,8 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), sample: $('sample'),
-    cols: $('cols'), colsOut: $('colsOut'), order: $('order'), dither: $('dither'), singles: $('singles'),
+    cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'),
+    order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
@@ -37,6 +38,8 @@
       throw err;
     }
     state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
+    // The orbit hint has done its job once someone drags the view.
+    state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
     if (state.img) build(true);
     requestAnimationFrame(tick);
   };
@@ -91,52 +94,42 @@
     useImage(c, c.toDataURL());
   });
 
-  // A little sunset scene so people can try it without an image.
+  // A rubber duck on a plain background: a good subject to inflate into a sculpture.
   function sampleImage() {
     const c = document.createElement('canvas');
-    c.width = 640; c.height = 480;
+    c.width = 600; c.height = 560;
     const g = c.getContext('2d');
-    const sky = g.createLinearGradient(0, 0, 0, 300);
-    sky.addColorStop(0, '#1d2b64');
-    sky.addColorStop(0.55, '#c9447a');
-    sky.addColorStop(1, '#fdb45c');
-    g.fillStyle = sky;
-    g.fillRect(0, 0, 640, 300);
-    g.fillStyle = '#ffe36e';
-    g.beginPath(); g.arc(320, 270, 90, 0, Math.PI * 2); g.fill();
-    const hills = (color, base, amp, f, ph) => {
+    g.fillStyle = '#f7f4ee';
+    g.fillRect(0, 0, 600, 560);
+    const ellipse = (x, y, rx, ry, color, rot = 0) => {
       g.fillStyle = color;
-      g.beginPath(); g.moveTo(0, 480);
-      for (let x = 0; x <= 640; x += 8) g.lineTo(x, base - amp * Math.sin(x * f + ph) - amp * 0.5 * Math.sin(x * f * 2.3));
-      g.lineTo(640, 480); g.closePath(); g.fill();
+      g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); g.fill();
     };
-    hills('#6b3a78', 300, 60, 0.012, 1);
-    hills('#3b2350', 320, 40, 0.018, 3);
-    const sea = g.createLinearGradient(0, 330, 0, 480);
-    sea.addColorStop(0, '#2b5e8c');
-    sea.addColorStop(1, '#0d2340');
-    g.fillStyle = sea;
-    g.fillRect(0, 330, 640, 150);
-    g.fillStyle = '#ffd36e';
-    for (let y = 340; y < 470; y += 12) {
-      const w = 110 - (y - 340) * 0.5;
-      g.fillRect(320 - w / 2 + Math.sin(y) * 10, y, w, 4);
-    }
+    ellipse(300, 400, 230, 140, '#f5c518');        // body
+    ellipse(505, 330, 70, 40, '#f5c518', -0.6);    // tail
+    ellipse(230, 200, 125, 120, '#f5c518');        // head
+    ellipse(330, 410, 120, 70, '#e8ae0c', -0.15);  // wing
+    ellipse(110, 225, 70, 28, '#fe8a18', 0.08);    // beak
+    ellipse(205, 165, 24, 28, '#ffffff');          // eye
+    ellipse(198, 170, 13, 16, '#1b2a34');
     return c;
   }
 
   // ---------- settings ----------
 
   el.cols.addEventListener('input', () => { el.colsOut.value = el.cols.value; });
-  el.cols.addEventListener('change', () => build(state.playing));
-  for (const input of [el.order, el.dither, el.singles]) {
+  el.thick.addEventListener('input', () => { el.thickOut.value = `${el.thick.value}%`; });
+  for (const input of [el.cols, el.thick, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
   function build(autoplay) {
     if (!state.img || !state.scene) return;
-    state.model = L.buildMosaic(state.img, {
+    state.model = L.buildSculpture(state.img, {
       cols: +el.cols.value,
+      thickness: el.thick.value / 100,
+      removeBackground: el.removeBg.checked,
+      hollow: el.hollow.checked,
       dither: el.dither.checked,
       onlySingles: el.singles.checked,
       order: el.order.value,
@@ -145,7 +138,7 @@
     renderParts();
     el.empty.hidden = true;
     el.canvas.hidden = false;
-    el.hint.hidden = false;
+    if (el.hint.isConnected) el.hint.hidden = false;
     el.controls.hidden = false;
     el.scrub.max = state.model.bricks.length;
     state.placed = 0;
@@ -223,9 +216,7 @@
         state.scene.place(a.i);
         return false;
       });
-      const last = state.placed ? m.bricks[state.placed - 1] : null;
-      const focus = last && { x: last.x + last.w / 2 - m.cols / 2, close: bricksPerSecond() <= 30 };
-      state.scene.setProgress(last ? last.level + 1 : 0, focus);
+      state.scene.setProgress(state.placed ? m.bricks[state.placed - 1].level + 1 : 0);
       const ghost = !state.playing && !state.active.length && state.placed < total ? state.placed : null;
       state.scene.setGhost(ghost, now);
       if (state.uiDirty && now - state.lastUi > 60) updateUi(now);
@@ -268,7 +259,7 @@
     for (const part of state.parts) {
       const li = document.createElement('li');
       li.innerHTML = `
-        <span class="plate" style="--c:${part.color.css}; --w:${part.length}"></span>
+        <span class="plate" style="--c:${part.color.css}; --w:${part.c}; --h:${part.a}"></span>
         <span class="pname"><b>${part.size}</b> ${part.color.name}</span>
         <span class="pcount"></span>
         <span class="pbar"><i></i></span>`;
@@ -277,7 +268,8 @@
     }
     const colors = new Set(state.model.bricks.map((b) => b.color)).size;
     el.partsSummary.textContent =
-      `${state.model.bricks.length.toLocaleString()} bricks · ${colors} colors · ${state.model.cols} studs wide × ${state.model.rows} bricks tall`;
+      `${state.model.bricks.length.toLocaleString()} bricks · ${colors} colors · ` +
+      `${state.model.cols} × ${state.model.depth} studs, ${state.model.rows} bricks tall`;
   }
 
   function updateUi(now) {
@@ -298,8 +290,8 @@
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
       el.caption.textContent = next
-        ? `Next: 1 × ${next.w} ${c.name} brick, row ${next.level + 1}, stud ${next.x + 1} from the left`
-        : `1 × ${shown.w} ${c.name} brick, row ${shown.level + 1}`;
+        ? `Next: ${next.size} ${c.name} brick, layer ${next.level + 1} (the glowing spot)`
+        : `${shown.size} ${c.name} brick, layer ${shown.level + 1} of ${m.rows}`;
     } else {
       el.swatch.hidden = true;
       el.caption.textContent = 'Press Build to start';
@@ -329,7 +321,7 @@
   });
 
   el.saveCsv.addEventListener('click', () => {
-    const rows = [['Color', 'Brick', 'Quantity'], ...state.parts.map((p) => [p.color.name, `1x${p.length}`, p.total])];
+    const rows = [['Color', 'Brick', 'Quantity'], ...state.parts.map((p) => [p.color.name, `${p.a}x${p.c}`, p.total])];
     download(new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' }), 'legofy-parts.csv');
   });
 })(window.Legofy);

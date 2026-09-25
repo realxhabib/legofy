@@ -10,7 +10,7 @@
   <header>
     <div class="logo" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <h1>Legofy</h1>
-    <p class="tagline">Drop in an image and watch it get built in 3D, one brick at a time.</p>
+    <p class="tagline">Drop in an image and watch it get built as a 3D brick sculpture, one brick at a time.</p>
   </header>
 
   <main>
@@ -26,20 +26,27 @@
       <button id="sample" class="link-btn" type="button">No image handy? Try a sample</button>
 
       <fieldset id="settings">
-        <legend>Mosaic</legend>
+        <legend>Sculpture</legend>
         <label class="row">
-          <span>Width <output id="colsOut">48</output> studs</span>
-          <input id="cols" type="range" min="16" max="128" step="4" value="48">
+          <span>Width <output id="colsOut">36</output> studs</span>
+          <input id="cols" type="range" min="12" max="80" step="4" value="36">
+        </label>
+        <label class="row">
+          <span>Thickness <output id="thickOut">60%</output> <small>(0% = flat wall)</small></span>
+          <input id="thick" type="range" min="0" max="100" step="5" value="60">
         </label>
         <label class="row">
           <span>Build order</span>
           <select id="order">
-            <option value="left-right">Row by row, left to right</option>
-            <option value="zigzag">Row by row, zigzag</option>
-            <option value="center-out">Row by row, center outward</option>
-            <option value="random">Row by row, random</option>
+            <option value="sweep">Layer by layer, back to front</option>
+            <option value="zigzag">Layer by layer, zigzag</option>
+            <option value="outside-in">Layer by layer, outside in</option>
+            <option value="center-out">Layer by layer, center out</option>
+            <option value="random">Layer by layer, random</option>
           </select>
         </label>
+        <label class="check"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
+        <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer bricks)</label>
         <label class="check"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
         <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
       </fieldset>
@@ -75,7 +82,7 @@
           <button id="finish" title="Finish (End)">⏭</button>
           <button id="view" title="Reset camera">⟲ View</button>
           <label class="speed">Speed
-            <input id="speed" type="range" min="0" max="100" value="40">
+            <input id="speed" type="range" min="0" max="100" value="55">
             <output id="speedOut"></output>
           </label>
           <span class="spacer"></span>
@@ -97,7 +104,7 @@
     }
   </script>
   <script src="src/palette.js"></script>
-  <script src="src/mosaic.js"></script>
+  <script src="src/sculpt.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
   <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->

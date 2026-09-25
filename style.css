@@ -140,7 +140,7 @@ select {
 .plate {
   grid-row: span 2;
   justify-self: center;
-  width: calc(var(--w) * 5px); height: 10px;
+  width: calc(var(--w) * 5px); height: calc(var(--h) * 5px);
   max-width: 44px;
   background: var(--c);
   border-radius: 2px;
