@@ -3,35 +3,73 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Legofy — build any image in bricks</title>
+  <title>Legofy — turn images and 3D scans into brick sculptures</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
     <div class="logo" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <h1>Legofy</h1>
-    <p class="tagline">Drop in an image and watch it get built as a 3D brick sculpture, one brick at a time.</p>
+    <p class="tagline">Drop in an image or a 3D scan and watch it get built as a brick sculpture, one brick at a time.</p>
   </header>
 
   <main>
     <aside class="panel">
       <label id="dropzone" class="dropzone" tabindex="0">
-        <input id="file" type="file" accept="image/*" hidden>
+        <!-- No accept filter: iOS greys out 3D file types it doesn't recognise. -->
+        <input id="file" type="file" multiple hidden>
         <img id="preview" alt="" hidden>
+        <div id="modelCard" class="model-card" hidden>
+          <div class="cube" aria-hidden="true"></div>
+          <strong></strong>
+          <span></span>
+        </div>
         <div class="drop-hint">
-          <strong>Drop an image here</strong>
+          <strong>Drop an image or 3D scan here</strong>
           <span>or click to choose · paste works too</span>
+          <span class="formats">3D: GLB, OBJ (+ .mtl and texture), PLY, STL, USDZ</span>
         </div>
       </label>
-      <button id="sample" class="link-btn" type="button">No image handy? Try a sample</button>
+      <p id="notice" class="notice" hidden></p>
+      <div class="samples">
+        Try a sample:
+        <button id="sample" class="link-btn" type="button">duck picture</button> ·
+        <button id="sample3d" class="link-btn" type="button">3D toadstool</button>
+      </div>
+
+      <details class="howto">
+        <summary>Scan a real object with your iPhone</summary>
+        <ol>
+          <li>Install a 3D scanning app, such as Scaniverse, Polycam, or KIRI Engine. Or use Apple's
+            Object Capture in Reality Composer.</li>
+          <li>Put the object somewhere with even light and walk slowly all the way around it. Get the
+            top too, and keep the whole object in view.</li>
+          <li>Process the scan as a <b>mesh</b> (not a splat), crop away the floor, and <b>export as GLB</b>.
+            OBJ works too if you choose its .mtl and texture files along with it.</li>
+          <li>Open this page on the iPhone and choose the file from Files, or AirDrop it to your computer and drop it here.</li>
+        </ol>
+        <p>Apple's own USDZ exports use a binary format browsers can't read yet, so export GLB or OBJ when the app offers it.</p>
+      </details>
 
       <fieldset id="settings">
         <legend>Sculpture</legend>
         <label class="row">
-          <span>Width <output id="colsOut">36</output> studs</span>
+          <span><span data-source="image">Width</span><span data-source="model" hidden>Size (longest side)</span>
+            <output id="colsOut">36</output> studs</span>
           <input id="cols" type="range" min="12" max="80" step="4" value="36">
         </label>
-        <label class="row">
+        <label class="row" data-source="model" hidden>
+          <span>Which way is up?</span>
+          <select id="up">
+            <option value="y">Y up (most apps, GLB)</option>
+            <option value="z">Z up (some OBJ / STL)</option>
+            <option value="-y">Upside down (flip Y)</option>
+            <option value="-z">Flip Z</option>
+            <option value="x">X up</option>
+            <option value="-x">Flip X</option>
+          </select>
+        </label>
+        <label class="row" data-source="image">
           <span>Thickness <output id="thickOut">60%</output> <small>(0% = flat wall)</small></span>
           <input id="thick" type="range" min="0" max="100" step="5" value="60">
         </label>
@@ -45,9 +83,9 @@
             <option value="random">Layer by layer, random</option>
           </select>
         </label>
-        <label class="check"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
+        <label class="check" data-source="image"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
         <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer bricks)</label>
-        <label class="check"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
+        <label class="check" data-source="image"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
         <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
       </fieldset>
 
@@ -93,7 +131,7 @@
     </section>
   </main>
 
-  <div id="dropOverlay" class="drop-overlay" hidden>Drop to build</div>
+  <div id="dropOverlay" class="drop-overlay" hidden>Drop to build (you can drop several files at once)</div>
 
   <script type="importmap">
     {
@@ -105,6 +143,7 @@
   </script>
   <script src="src/palette.js"></script>
   <script src="src/sculpt.js"></script>
+  <script src="src/voxelize.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
   <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->
@@ -112,7 +151,22 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry });
+    const CDN = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/';
+    // Model loaders are only fetched the first time someone drops a 3D file.
+    const loadModelLoaders = async () => {
+      const mods = await Promise.all([
+        import('three/addons/loaders/GLTFLoader.js'),
+        import('three/addons/loaders/DRACOLoader.js'),
+        import('three/addons/libs/meshopt_decoder.module.js'),
+        import('three/addons/loaders/OBJLoader.js'),
+        import('three/addons/loaders/MTLLoader.js'),
+        import('three/addons/loaders/PLYLoader.js'),
+        import('three/addons/loaders/STLLoader.js'),
+        import('three/addons/loaders/USDZLoader.js'),
+      ]);
+      return Object.assign({ DRACO_DECODER_PATH: `${CDN}libs/draco/gltf/` }, ...mods);
+    };
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders });
   </script>
 </body>
 </html>

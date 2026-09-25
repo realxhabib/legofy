@@ -315,12 +315,27 @@
     for (let i = 0; i < half.length; i++) maxHalf = Math.max(maxHalf, half[i]);
     const depth = maxHalf * 2 + 1;
 
-    // Solid voxel test; below the bottom layer is the baseplate, which counts as solid.
+    const volume = { cols, rows, depth, voxels: new Int16Array(cols * rows * depth).fill(-1) };
+    for (let level = 0; level < rows; level++) {
+      const y = rows - 1 - level;
+      for (let x = 0; x < cols; x++) {
+        const i = y * cols + x;
+        if (grid[i] < 0) continue;
+        for (let z = maxHalf - half[i]; z <= maxHalf + half[i]; z++) {
+          volume.voxels[(level * depth + z) * cols + x] = grid[i];
+        }
+      }
+    }
+    return L.bricksFromVolume(volume, { hollow, onlySingles, order });
+  };
+
+  // Solid color volume -> bricks. voxels[(level * depth + z) * cols + x] is a palette index or -1.
+  L.bricksFromVolume = function ({ cols, rows, depth, voxels }, { hollow = true, onlySingles = false, order = 'sweep' }) {
+    // Below the bottom layer is the baseplate, which counts as solid.
     const solid = (x, level, z) => {
       if (level < 0) return true;
       if (x < 0 || x >= cols || level >= rows || z < 0 || z >= depth) return false;
-      const i = (rows - 1 - level) * cols + x;
-      return grid[i] >= 0 && Math.abs(z - maxHalf) <= half[i];
+      return voxels[(level * depth + z) * cols + x] >= 0;
     };
     // Hollow: keep only voxels that touch the outside, like a real brick-built sculpture.
     const visible = (x, level, z) =>
@@ -331,21 +346,21 @@
     const layer = new Int16Array(cols * depth);
     const footprints = onlySingles ? [[1, 1]] : FOOTPRINTS;
     for (let level = 0; level < rows; level++) {
-      const y = rows - 1 - level;
       layer.fill(-1);
-      for (let x = 0; x < cols; x++) {
-        const i = y * cols + x;
-        if (grid[i] < 0) continue;
-        for (let z = maxHalf - half[i]; z <= maxHalf + half[i]; z++) {
-          if (visible(x, level, z)) layer[z * cols + x] = grid[i];
+      for (let z = 0; z < depth; z++) {
+        for (let x = 0; x < cols; x++) {
+          const c = voxels[(level * depth + z) * cols + x];
+          if (c >= 0 && visible(x, level, z)) layer[z * cols + x] = c;
         }
       }
       tileLayer(layer, cols, depth, level, footprints, bricks);
     }
     ORDERS[order](bricks, cols, depth);
     bricks.forEach((b, i) => { b.step = i; });
-    return { cols, rows, depth, grid, bricks, palette };
+    return { cols, rows, depth, bricks, palette: L.PALETTE };
   };
+
+  L.nearestColor = (r, g, b) => nearest(L.PALETTE, r, g, b);
 
   // Aggregate bricks into a parts list keyed by color + footprint.
   L.partsList = function (bricks, palette) {

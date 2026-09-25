@@ -88,11 +88,33 @@ main {
   position: absolute; inset: auto 8px 8px auto; padding: 4px 10px;
   background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 999px; font-size: 12px;
 }
-.dropzone.has-image .drop-hint strong { display: none; }
+.dropzone.has-image .drop-hint strong,
+.dropzone.has-image .drop-hint .formats { display: none; }
 .dropzone.has-image .drop-hint span { color: #fff; font-size: 12px; }
 
+.samples { font-size: 14px; color: var(--muted); }
+.formats { font-size: 12px !important; margin-top: 4px; }
+.notice { margin: 0; font-size: 13px; color: var(--muted); }
+.notice.error { color: var(--accent); }
+.model-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 24px 16px 44px; text-align: center; word-break: break-all;
+}
+.model-card span { color: var(--muted); font-size: 13px; }
+.cube {
+  width: 44px; height: 44px; margin-bottom: 6px;
+  background: var(--accent); border-radius: 6px;
+  transform: rotate(45deg) skew(-8deg, -8deg);
+  box-shadow: inset -8px -8px 0 rgba(0, 0, 0, 0.2), inset 6px 6px 0 rgba(255, 255, 255, 0.2);
+}
+.howto {
+  border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+  padding: 10px 14px; font-size: 13px;
+}
+.howto summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.howto ol { padding-left: 18px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.howto p { margin: 0; color: var(--muted); }
 .link-btn {
-  align-self: flex-start;
   background: none; border: 0; padding: 0;
   color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline;
 }

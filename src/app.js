@@ -2,8 +2,9 @@
 (function (L) {
   const $ = (id) => document.getElementById(id);
   const el = {
-    file: $('file'), dropzone: $('dropzone'), preview: $('preview'), sample: $('sample'),
-    cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'),
+    file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
+    sample: $('sample'), sample3d: $('sample3d'), notice: $('notice'),
+    cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
     order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
@@ -13,8 +14,11 @@
     dropOverlay: $('dropOverlay'),
   };
 
+  const MODEL_TYPES = ['glb', 'gltf', 'obj', 'ply', 'stl', 'usdz'];
+  const extOf = (f) => f.name.split('.').pop().toLowerCase();
+
   const state = {
-    scene: null, img: null, model: null, parts: [], partEls: new Map(),
+    T: null, scene: null, source: null, model: null, parts: [], partEls: new Map(),
     placed: 0, active: [], playing: false, acc: 0, last: 0, uiDirty: true, lastUi: 0,
   };
 
@@ -29,8 +33,15 @@
     el.canvas.hidden = true;
   }
 
+  function notice(msg, isError = false) {
+    el.notice.textContent = msg || '';
+    el.notice.hidden = !msg;
+    el.notice.classList.toggle('error', isError);
+  }
+
   L.start = function (THREE) {
     clearTimeout(loadTimeout);
+    state.T = THREE;
     try {
       state.scene = new L.Scene3D(el.canvas, THREE);
     } catch (err) {
@@ -40,30 +51,147 @@
     state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
     // The orbit hint has done its job once someone drags the view.
     state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
-    if (state.img) build(true);
+    if (state.source) build(true);
     requestAnimationFrame(tick);
   };
 
-  // ---------- image input ----------
+  // ---------- input: images and 3D scans ----------
 
-  function loadFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
+  function loadFiles(fileList) {
+    const files = [...(fileList || [])];
+    if (files.some((f) => MODEL_TYPES.includes(extOf(f)))) return loadModelFiles(files);
+    const image = files.find((f) => f.type.startsWith('image/'));
+    if (image) return loadImage(image);
+    if (files.length) notice(`Can't read ${files[0].name}. Use an image, or a 3D model (${MODEL_TYPES.join(', ')}).`, true);
+  }
+
+  function loadImage(file) {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => useImage(img, url);
-    img.onerror = () => alert('Sorry, that image could not be read.');
+    img.onerror = () => notice('Sorry, that image could not be read.', true);
     img.src = url;
   }
 
   function useImage(img, previewSrc) {
-    state.img = img;
+    state.source = { kind: 'image', img };
     el.preview.src = previewSrc;
     el.preview.hidden = false;
+    el.modelCard.hidden = true;
     el.dropzone.classList.add('has-image');
+    notice('');
+    showSettingsFor('image');
     build(true);
   }
 
-  el.file.addEventListener('change', () => loadFile(el.file.files[0]));
+  function useModel(root, name) {
+    state.source = { kind: 'model', root, name };
+    let triangles = 0;
+    root.traverse((o) => {
+      if (o.isMesh && o.geometry) triangles += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    el.modelCard.querySelector('strong').textContent = name;
+    el.modelCard.querySelector('span').textContent = triangles
+      ? `${Math.round(triangles).toLocaleString()} triangles` : '3D point cloud';
+    el.modelCard.hidden = false;
+    el.preview.hidden = true;
+    el.dropzone.classList.add('has-image');
+    notice('');
+    showSettingsFor('model');
+    build(true);
+  }
+
+  function showSettingsFor(kind) {
+    for (const node of document.querySelectorAll('[data-source]')) node.hidden = node.dataset.source !== kind;
+  }
+
+  // Scans often come as several files (an .obj with its .mtl and texture, a .gltf with .bin),
+  // so every dropped file is made available to the loaders by name.
+  async function loadModelFiles(files) {
+    if (!state.T) return notice('The 3D engine is still loading, try again in a moment.', true);
+    const T = state.T;
+    const main = MODEL_TYPES.map((e) => files.find((f) => extOf(f) === e)).find(Boolean);
+    notice(`Loading ${main.name}…`);
+    const byName = new Map(files.map((f) => [f.name.toLowerCase(), f]));
+    const urls = new Map();
+    const urlFor = (f) => {
+      if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
+      return urls.get(f);
+    };
+    let pending = 0;
+    let idle = null;
+    const manager = new T.LoadingManager();
+    manager.onStart = manager.onProgress = (url, loaded, total) => { pending = total - loaded; };
+    manager.onLoad = () => { pending = 0; if (idle) idle(); };
+    manager.setURLModifier((url) => {
+      if (url.startsWith('data:')) return url;
+      const name = decodeURIComponent(url.split(/[\\/]/).pop().split(/[?#]/)[0]).toLowerCase();
+      const file = byName.get(name);
+      return file ? urlFor(file) : url;
+    });
+
+    try {
+      const X = await T.loadModelLoaders();
+      const url = urlFor(main);
+      let root;
+      switch (extOf(main)) {
+        case 'glb':
+        case 'gltf': {
+          const loader = new X.GLTFLoader(manager);
+          loader.setDRACOLoader(new X.DRACOLoader(manager).setDecoderPath(X.DRACO_DECODER_PATH));
+          loader.setMeshoptDecoder(X.MeshoptDecoder);
+          root = (await loader.loadAsync(url)).scene;
+          break;
+        }
+        case 'obj': {
+          const loader = new X.OBJLoader(manager);
+          const mtl = files.find((f) => extOf(f) === 'mtl');
+          if (mtl) {
+            const materials = await new X.MTLLoader(manager).loadAsync(urlFor(mtl));
+            materials.preload();
+            loader.setMaterials(materials);
+          }
+          root = await loader.loadAsync(url);
+          break;
+        }
+        case 'ply': {
+          const geometry = await new X.PLYLoader(manager).loadAsync(url);
+          const vertexColors = !!geometry.attributes.color;
+          root = geometry.index
+            ? new T.Mesh(geometry, new T.MeshStandardMaterial({ vertexColors }))
+            : new T.Points(geometry, new T.PointsMaterial({ vertexColors }));
+          break;
+        }
+        case 'stl': {
+          const geometry = await new X.STLLoader(manager).loadAsync(url);
+          const vertexColors = !!geometry.attributes.color;
+          root = new T.Mesh(geometry, new T.MeshStandardMaterial({ vertexColors, color: vertexColors ? '#ffffff' : '#a0a5a9' }));
+          break;
+        }
+        case 'usdz':
+          try {
+            root = await new X.USDZLoader(manager).loadAsync(url);
+          } catch (err) {
+            if (/crate|usdc/i.test(err.message)) {
+              throw new Error('This USDZ is in Apple\'s binary format, which browsers can\'t read yet. ' +
+                'Export the scan as GLB or OBJ instead (most scanning apps offer it).');
+            }
+            throw err;
+          }
+          break;
+      }
+      // Textures (e.g. the .jpg next to an .obj) may still be arriving.
+      if (pending > 0) await new Promise((resolve) => { idle = resolve; });
+      useModel(root, main.name);
+    } catch (err) {
+      console.error(err);
+      notice(`Couldn't load ${main.name}: ${err.message || err}`, true);
+    } finally {
+      setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 5000);
+    }
+  }
+
+  el.file.addEventListener('change', () => { loadFiles(el.file.files); el.file.value = ''; });
   el.dropzone.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.file.click(); }
   });
@@ -82,16 +210,19 @@
     e.preventDefault();
     dragDepth = 0;
     el.dropOverlay.hidden = true;
-    loadFile(e.dataTransfer.files[0]);
+    loadFiles(e.dataTransfer.files);
   });
   window.addEventListener('paste', (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
-    if (item) loadFile(item.getAsFile());
+    if (item) loadImage(item.getAsFile());
   });
 
   el.sample.addEventListener('click', () => {
     const c = sampleImage();
     useImage(c, c.toDataURL());
+  });
+  el.sample3d.addEventListener('click', () => {
+    if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)');
   });
 
   // A rubber duck on a plain background: a good subject to inflate into a sculpture.
@@ -119,21 +250,32 @@
 
   el.cols.addEventListener('input', () => { el.colsOut.value = el.cols.value; });
   el.thick.addEventListener('input', () => { el.thickOut.value = `${el.thick.value}%`; });
-  for (const input of [el.cols, el.thick, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
+  for (const input of [el.cols, el.thick, el.up, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
   function build(autoplay) {
-    if (!state.img || !state.scene) return;
-    state.model = L.buildSculpture(state.img, {
-      cols: +el.cols.value,
-      thickness: el.thick.value / 100,
-      removeBackground: el.removeBg.checked,
-      hollow: el.hollow.checked,
-      dither: el.dither.checked,
-      onlySingles: el.singles.checked,
-      order: el.order.value,
-    });
+    if (!state.source || !state.scene) return;
+    const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value };
+    try {
+      state.model = state.source.kind === 'image'
+        ? L.buildSculpture(state.source.img, {
+          ...shared,
+          cols: +el.cols.value,
+          thickness: el.thick.value / 100,
+          removeBackground: el.removeBg.checked,
+          dither: el.dither.checked,
+        })
+        : L.bricksFromVolume(L.voxelizeModel(state.T, state.source.root, { size: +el.cols.value, up: el.up.value }), shared);
+    } catch (err) {
+      console.error(err);
+      notice(`Couldn't build that: ${err.message || err}`, true);
+      return;
+    }
+    if (!state.model.bricks.length) {
+      notice('Nothing to build: the subject came out empty. Try turning off "Cut out the subject".', true);
+      return;
+    }
     state.parts = L.partsList(state.model.bricks, state.model.palette);
     renderParts();
     el.empty.hidden = true;
