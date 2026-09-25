@@ -36,9 +36,13 @@ no app, no marker and no upload: everything runs on the phone.
   the circle is covered, by trying distances and keeping the one whose outline best matches the shape so far,
   which copes with walking closer or crouching. After **Done**, every capture's distance is fine-tuned.
 - **What's the object?** MediaPipe's on-device interactive segmenter cuts it out of each frame, zoomed in on a
-  full-resolution crop around the object so small things still get clean edges. After the first tap it's
-  prompted with a scribble down the middle of the shape carved so far, so it keeps selecting the whole
-  object; a cut-out that doesn't contain the prompted points is retried once, then dropped.
+  full-resolution crop around the object so small things still get clean edges. Each frame is prompted with
+  the deepest-inside points of the previous capture's cut-out, and only the parts connected to them are kept.
+- **Not fooled by the background:** a cut-out must look like the previous one (the phone only turns ~10°
+  between captures), and parts whose colour matches the surroundings far better than the object (learned
+  from the captures you tapped) are trimmed; a cut-out that is mostly background is dropped. After three
+  misses in a row the scanner stops and asks you to tap the object, and you can tap it any time to
+  re-anchor. That keeps a white sign from turning into "sign plus the cloud next to it".
 - **Mapping:** each captured view (a new one every ~7° of movement) carves away the voxels it sees background
   through, a "visual hull" that updates live in the preview. A voxel only goes if at least two views agree.
   Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. Nothing can see

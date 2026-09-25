@@ -84,6 +84,9 @@
     constructor() {
       this.all = [];   // every accepted capture, in order
       this.views = []; // the ones currently used (the user can switch any off during review)
+      // Colour models learned from accepted captures: what the object looks like, and what's around it.
+      this.objectColors = new Float32Array(4096);
+      this.backgroundColors = new Float32Array(4096);
     }
 
     get count() { return this.views.length; }
@@ -102,12 +105,25 @@
 
     // image: ImageData; mask: per-pixel object confidence (0..1), same size as the image;
     // rotation: 3×3 row-major camera→world (camera looks down its -Z, image up is +Y, world +Y is up).
-    // Returns the new view (with its silhouette .stats), or null when it was rejected.
-    addView({ image, mask, rotation }) {
+    // Returns the new view (with its .stats), or null when it was rejected.
+    // `anchored`: the user pointed at the object for this capture (the first tap, or a re-tap), so it
+    // is trusted: it skips the consistency check and teaches us what the object's colours are.
+    addView(capture, { anchored = false } = {}) {
+      const view = this.tryView(capture, anchored);
+      if (view) this.learnColors(view, anchored);
+      return view;
+    }
+
+    tryView({ image, mask, rotation }, anchored) {
       const { width: w, height: h } = image;
       const stats = maskStats(mask, w, h);
       if (stats.area < w * h * 0.005 || stats.area > w * h * 0.8) return null;
       if (stats.edge > (w + h) * 0.04) return null;
+      // Between captures the phone turns only ~10°, so the outline should look much like the last
+      // one. A sudden change (the sign plus a cloud beside it) means the finder grabbed background.
+      // (If the outline really does change fast, the scanner asks the user to tap the object instead.)
+      const prev = this.all[this.all.length - 1];
+      if (prev && !anchored && shapeSimilarity(prev, mask, stats) < 0.55) return null;
       const f = Math.max(w, h) / 2 / Math.tan(FOV_LONG / 2);
       const R = Float64Array.from(rotation);
       // The object's centre lies on the ray through the silhouette centroid.
@@ -145,10 +161,13 @@
       }
       view.dist = view.base = dist;
       view.pos = [-dir[0] * dist, -dir[1] * dist, -dir[2] * dist];
+      view.core = core(mask, w, h, grow + 1);
+      // Once a quarter of the way round, a cut-out that spills well outside the shape so far has
+      // grabbed background (sky next to a white sign, the floor under a shoe): skip it.
+      if (this.yawBins().size >= 6 && this.agreement(view).extra > 0.45) return null;
       // Once the shape is established, a cut-out that misses a big part of what the shape says should
       // be visible (e.g. only the lid of a jar) would wrongly carve that part away, so skip it.
       if (this.yawBins().size >= 12 && this.coverageOf(view) < 0.6) return null;
-      view.core = core(mask, w, h, grow + 1);
       view.enabled = true;
       view.index = this.all.length;
       this.all.push(view);
@@ -226,6 +245,33 @@
       }
     }
 
+    learnColors(view, anchored) {
+      const { image, core: inside, bin, w, h, stats } = view;
+      const d = image.data;
+      // Background: a band around the outline, about a fifth of the object's size wide.
+      const band = Math.max(3, Math.round(Math.max(stats.maxX - stats.minX, stats.maxY - stats.minY) * 0.2));
+      const x0 = Math.max(0, stats.minX - band), x1 = Math.min(w - 1, stats.maxX + band);
+      const y0 = Math.max(0, stats.minY - band), y1 = Math.min(h - 1, stats.maxY + band);
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const i = y * w + x;
+          const c = ((d[i * 4] >> 4) << 8) | ((d[i * 4 + 1] >> 4) << 4) | (d[i * 4 + 2] >> 4);
+          if (inside[i]) { if (anchored) this.objectColors[c]++; } else if (!bin[i]) this.backgroundColors[c]++;
+        }
+      }
+      this.objectTotal = this.objectColors.reduce((a, b) => a + b, 0);
+      this.backgroundTotal = this.backgroundColors.reduce((a, b) => a + b, 0);
+    }
+
+    // True for a pixel colour that's far more typical of the surroundings than of the object.
+    looksLikeBackground(r, g, b) {
+      if (!this.objectTotal || !this.backgroundTotal) return false;
+      const c = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+      const po = (this.objectColors[c] + 0.5) / this.objectTotal;
+      const pb = (this.backgroundColors[c] + 0.5) / this.backgroundTotal;
+      return pb > po * 6;
+    }
+
     // Leave a capture out (or put it back). Its carving votes are simply taken back.
     setEnabled(view, on) {
       if (view.enabled === on) return;
@@ -287,48 +333,6 @@
         covered += view.bin[k];
       }
       return total ? covered / total : 1;
-    }
-
-    // Where to point the segmenter in a new frame: a scribble down the middle of the shape carved
-    // so far, so it selects the whole object rather than just the part under one point.
-    promptFor(R, w, h, fallback) {
-      if (this.views.length < 3) return { keypoint: fallback };
-      const f = Math.max(w, h) / 2 / Math.tan(FOV_LONG / 2);
-      const fw = Carver.forward(R);
-      const d = this.distanceFor(fw);
-      const view = { R, w, h, f, pos: [-fw[0] * d, -fw[1] * d, -fw[2] * d] };
-      const bands = 6;
-      const rows = Array.from({ length: bands }, () => []);
-      const ys = [];
-      const p = [0, 0, 0];
-      const floor = this.floorHeight();
-      for (let i = 0; i < this.outside.length; i += 3) {
-        if (!this.solidAt(i) || this.center(i, p)[1] < floor) continue;
-        const k = this.project(view, p);
-        if (k >= 0) ys.push(k);
-      }
-      if (ys.length < 20) return { keypoint: fallback };
-      let minV = h, maxV = 0, minU = w, maxU = 0;
-      for (const k of ys) {
-        const v = Math.floor(k / w), u = k % w;
-        minV = Math.min(minV, v); maxV = Math.max(maxV, v); minU = Math.min(minU, u); maxU = Math.max(maxU, u);
-      }
-      const box = { x0: minU / w, y0: minV / h, x1: (maxU + 1) / w, y1: (maxV + 1) / h };
-      for (const k of ys) {
-        const v = Math.floor(k / w), u = k % w;
-        const b = Math.min(bands - 1, Math.floor(((v - minV) / (maxV - minV + 1)) * bands));
-        rows[b].push([u, v]);
-      }
-      const scribble = [];
-      // The lowest band is skipped: it's where a scribble would most easily slip onto the table.
-      for (const pts of rows.slice(0, bands - 1)) {
-        if (pts.length < 3) continue;
-        pts.sort((a, b) => a[0] - b[0]);
-        const [u] = pts[pts.length >> 1];
-        const v = pts.reduce((sum, q) => sum + q[1], 0) / pts.length;
-        scribble.push({ x: (u + 0.5) / w, y: (v + 0.5) / h });
-      }
-      return scribble.length >= 2 ? { scribble, box } : { keypoint: fallback };
     }
 
     center(i, out) {
@@ -582,6 +586,155 @@
     return mask;
   };
 
+  // Overlap (IoU) between a new cut-out and a previous view's outline, after lining up their centres.
+  function shapeSimilarity(prev, mask, stats) {
+    const { w, h, bin } = prev;
+    const dx = Math.round(stats.cx - prev.stats.cx), dy = Math.round(stats.cy - prev.stats.cy);
+    let both = 0, prevArea = 0;
+    for (let i = 0; i < w * h; i++) prevArea += bin[i];
+    for (let y = stats.minY; y <= stats.maxY; y++) {
+      const py = y - dy;
+      if (py < 0 || py >= h) continue;
+      for (let x = stats.minX; x <= stats.maxX; x++) {
+        const px = x - dx;
+        if (px >= 0 && px < w && mask[y * w + x] >= 0.5 && bin[py * w + px]) both++;
+      }
+    }
+    return both / (stats.area + prevArea - both);
+  }
+
+  // Distance (in pixels, roughly) from each object pixel to the nearest non-object pixel.
+  function depthMap(bin, w, h) {
+    const d = new Uint16Array(w * h);
+    const BIG = 65535;
+    for (let i = 0; i < w * h; i++) d[i] = bin[i] ? BIG : 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (!d[i]) continue;
+        const up = y ? d[i - w] : 0, left = x ? d[i - 1] : 0;
+        d[i] = Math.min(d[i], up + 1, left + 1);
+      }
+    }
+    for (let y = h - 1; y >= 0; y--) {
+      for (let x = w - 1; x >= 0; x--) {
+        const i = y * w + x;
+        if (!d[i]) continue;
+        const down = y < h - 1 ? d[i + w] : 0, right = x < w - 1 ? d[i + 1] : 0;
+        d[i] = Math.min(d[i], down + 1, right + 1);
+      }
+    }
+    return d;
+  }
+
+  // Where to point the segmenter in a new frame: the deepest-inside points of the previous capture's
+  // cut-out, one per horizontal band, so thin parts (a pole) and wide parts (the sign on it) are both
+  // prompted without any point landing on background.
+  function promptFrom(prev, fallback) {
+    if (!prev) return { keypoint: fallback };
+    const { core: c, w, h, stats } = prev;
+    const depth = depthMap(c, w, h);
+    const bands = 6, pts = [];
+    const span = stats.maxY - stats.minY + 1;
+    for (let b = 0; b < bands; b++) {
+      const y0 = stats.minY + Math.floor((b * span) / bands), y1 = stats.minY + Math.floor(((b + 1) * span) / bands);
+      let best = -1, bestD = 1;
+      for (let y = y0; y < y1; y++) {
+        for (let x = stats.minX; x <= stats.maxX; x++) {
+          const k = y * w + x;
+          if (depth[k] > bestD) { bestD = depth[k]; best = k; }
+        }
+      }
+      if (best >= 0) pts.push({ x: ((best % w) + 0.5) / w, y: (Math.floor(best / w) + 0.5) / h });
+    }
+    const box = { x0: stats.minX / w, x1: (stats.maxX + 1) / w, y0: stats.minY / h, y1: (stats.maxY + 1) / h };
+    if (!pts.length) return { keypoint: fallback, box };
+    return pts.length === 1 ? { keypoint: pts[0], box } : { scribble: pts, box };
+  }
+
+  const pointsOf = (roi) => roi.scribble || [roi.keypoint];
+  const pixelOf = (q, w, h) => Math.min(h - 1, Math.floor(q.y * h)) * w + Math.min(w - 1, Math.floor(q.x * w));
+
+  // Keep only the parts of the cut-out connected to the prompted points (drops stray blobs).
+  function keepConnected(mask, w, h, roi) {
+    const keep = new Uint8Array(w * h);
+    const stack = [];
+    for (const q of pointsOf(roi)) {
+      const k = pixelOf(q, w, h);
+      if (mask[k] >= 0.5 && !keep[k]) { keep[k] = 1; stack.push(k); }
+    }
+    while (stack.length) {
+      const k = stack.pop();
+      const x = k % w, y = (k - x) / w;
+      if (x > 0) visit(k - 1);
+      if (x < w - 1) visit(k + 1);
+      if (y > 0) visit(k - w);
+      if (y < h - 1) visit(k + w);
+    }
+    function visit(n) { if (!keep[n] && mask[n] >= 0.5) { keep[n] = 1; stack.push(n); } }
+    for (let i = 0; i < w * h; i++) if (!keep[i]) mask[i] = Math.min(mask[i], 0.49);
+    return mask;
+  }
+
+  // Cut the object out of a new frame during scanning. `source` is the full-resolution frame
+  // (the video), `prev` the last accepted capture. Returns a w×h confidence mask, or null.
+  L.cutOut = function ({ segmenter, source, srcW, srcH, w, h, prev, keypoint, carver, image }) {
+    const holds = (m, roi) => {
+      const pts = pointsOf(roi);
+      return pts.filter((q) => m[pixelOf(q, w, h)] >= 0.5).length >= Math.ceil(pts.length * 0.6);
+    };
+    const roi = promptFrom(prev, keypoint);
+    let used = roi;
+    let mask = L.segmentZoomed(segmenter, source, srcW, srcH, w, h, roi, roi.box);
+    if (!holds(mask, roi)) {
+      // The prompt didn't take (finder grabbed something else): retry once from the last centre.
+      used = { keypoint };
+      mask = L.segmentZoomed(segmenter, source, srcW, srcH, w, h, used, roi.box);
+      if (!holds(mask, used)) return null;
+    }
+    // Trim parts whose colour clearly belongs to the surroundings (trees, grass, sky), then keep
+    // what's still connected to the prompt.
+    if (carver && image) {
+      const d = image.data;
+      let area = 0, trimmed = 0;
+      for (let i = 0; i < w * h; i++) {
+        if (mask[i] < 0.5) continue;
+        area++;
+        if (carver.looksLikeBackground(d[i * 4], d[i * 4 + 1], d[i * 4 + 2])) { mask[i] = 0; trimmed++; }
+      }
+      if (trimmed > area * 0.25) return null; // mostly background: the finder lost the object
+    }
+    return keepConnected(mask, w, h, used);
+  };
+
+  // One capture while scanning, shared by the phone UI and the tests. `state` carries the last known
+  // centre (keypoint), a pending user tap, and how many captures in a row failed. After a few failures
+  // we stop guessing and ask the user to tap the object (needTap).
+  L.scanStep = function ({ carver, segmenter, source, srcW, srcH, image, rotation, state }) {
+    const { width: w, height: h } = image;
+    let mask, anchored = false;
+    if (state.tap) {
+      const roi = { keypoint: state.tap };
+      mask = keepConnected(L.segmentZoomed(segmenter, source, srcW, srcH, w, h, roi, null), w, h, roi);
+      anchored = true;
+      state.tap = null;
+    } else if (state.needTap) {
+      return null;
+    } else {
+      mask = L.cutOut({ segmenter, source, srcW, srcH, w, h, prev: carver.all[carver.all.length - 1], keypoint: state.keypoint, carver, image });
+    }
+    const view = mask && carver.addView({ image, mask, rotation }, { anchored });
+    if (view) {
+      state.keypoint = { x: (view.stats.cx + 0.5) / w, y: (view.stats.cy + 0.5) / h };
+      state.misses = 0;
+      state.needTap = false;
+      state.lastMask = mask;
+    } else if (anchored || ++state.misses >= 3) {
+      state.needTap = true;
+    }
+    return view;
+  };
+
   // ---------- phone pose ----------
 
   // DeviceOrientation (alpha, beta, gamma in degrees, earth frame east-north-up) plus the screen
@@ -728,13 +881,14 @@
         this.status('Tap the object you want to build. Tap its middle so the whole thing lights up.');
         return;
       }
-      const view = this.carver.addView(pending);
+      const view = this.carver.addView(pending, { anchored: true });
       if (!view) {
         this.phase = 'select';
         this.status('That cut-out can\'t be used (it runs off the screen or is tiny). Step back and tap again.');
         return;
       }
       this.accepted(view);
+      this.state = { keypoint: this.keypoint, misses: 0, needTap: false, tap: null };
       this.guide = { ...view.stats, w: view.w, h: view.h };
       this.phase = 'scanning';
       this.updateUi();
@@ -786,13 +940,16 @@
       return { x: (W - vw * k) / 2, y: (H - vh * k) / 2, w: vw * k, h: vh * k };
     }
 
+    // Tapping picks the object; while scanning, a tap re-anchors on it (always allowed, and asked for
+    // when the finder loses track).
     tap(e) {
-      if (!this.running || this.phase === 'scanning') return;
+      if (!this.running) return;
       const r = this.videoRect();
       const box = this.ui.overlay.getBoundingClientRect();
       const x = (e.clientX - box.left - r.x) / r.w, y = (e.clientY - box.top - r.y) / r.h;
       if (x < 0 || y < 0 || x > 1 || y > 1) return;
-      this.keypoint = { x, y };
+      if (this.phase === 'scanning') this.state.tap = { x, y };
+      else this.keypoint = { x, y };
       this.forceCapture = true;
     }
 
@@ -810,29 +967,19 @@
       const rotation = this.rotation.slice();
       const image = this.grabFrame();
       const { video } = this.ui;
-      const last = this.carver.all[this.carver.all.length - 1];
-      const lastBox = last && {
-        x0: last.stats.minX / last.w, x1: (last.stats.maxX + 1) / last.w,
-        y0: last.stats.minY / last.h, y1: (last.stats.maxY + 1) / last.h,
-      };
-      const segment = (roi) => L.segmentZoomed(this.segmenter, video, video.videoWidth, video.videoHeight,
-        image.width, image.height, roi, roi.box || (this.phase === 'scanning' ? lastBox : null));
-      // The cut-out should contain the points we pointed at; if not, the finder grabbed the floor
-      // or a shadow. Retry once with just the last known centre, then give up on this frame.
-      const holds = (m, roi) => {
-        const pts = roi.scribble || [roi.keypoint];
-        const inside = pts.filter((q) => m[Math.min(image.height - 1, Math.floor(q.y * image.height)) * image.width +
-          Math.min(image.width - 1, Math.floor(q.x * image.width))] >= 0.5).length;
-        return inside >= Math.ceil(pts.length * 0.6);
-      };
-      const roi = this.carver.promptFor(rotation, image.width, image.height, this.keypoint);
-      let mask = segment(roi);
-      if (this.phase === 'scanning' && mask && !holds(mask, roi)) {
-        const retry = { keypoint: this.keypoint };
-        mask = segment(retry);
-        if (mask && !holds(mask, retry)) mask = null;
+      if (this.phase === 'scanning') {
+        const view = L.scanStep({
+          carver: this.carver, segmenter: this.segmenter, source: video, srcW: video.videoWidth,
+          srcH: video.videoHeight, image, rotation, state: this.state,
+        });
+        if (view) {
+          this.accepted(view);
+          this.drawMask(this.state.lastMask, image.width, image.height);
+        }
+        return view && view.stats;
       }
-      if (!mask) return null;
+      const mask = keepConnected(L.segmentZoomed(this.segmenter, video, video.videoWidth, video.videoHeight,
+        image.width, image.height, { keypoint: this.keypoint }, null), image.width, image.height, { keypoint: this.keypoint });
       if (this.phase !== 'scanning') {
         // Picking the object: hold the cut-out for the user to confirm.
         const { width: w, height: h } = image;
@@ -850,11 +997,6 @@
         this.status('Is the highlighted area the whole object?');
         return stats;
       }
-      const view = this.carver.addView({ image, mask, rotation });
-      if (!view) return null;
-      this.accepted(view);
-      this.drawMask(mask, image.width, image.height);
-      return view.stats;
     }
 
     // Bookkeeping for a new capture: follow the object, and keep a thumbnail for the review.
@@ -878,7 +1020,7 @@
       requestAnimationFrame((t) => this.loop(t));
       const ready = this.keypoint && this.rotation && !this.busy;
       const steady = (this.turnRate || 0) < 1.2; // rad/s: skip blurry frames while turning fast
-      const walking = this.phase === 'scanning' && steady && this.carver.isNewDirection(this.rotation);
+      const walking = this.phase === 'scanning' && !this.state.needTap && steady && this.carver.isNewDirection(this.rotation);
       if (ready && (this.forceCapture || walking)) {
         this.busy = true;
         const forced = this.forceCapture;
@@ -888,7 +1030,7 @@
           try {
             const stats = this.capture();
             if (!stats && forced) this.status('Couldn\'t pick out the object. Tap right on it again.');
-            if (stats) this.updateUi();
+            if (stats || (this.state && this.state.needTap)) this.updateUi();
           } catch (err) {
             console.error(err);
             this.status(`Scanning hiccup: ${err.message}`);
@@ -909,7 +1051,9 @@
         // Views from above only see the outline, not the height: ask for some low side views too.
         const lowest = Math.min(...carver.views.map((v) => Math.asin(Math.max(-1, Math.min(1, -v.dir[1])))));
         const needLow = carver.count >= 8 && lowest > (35 * Math.PI) / 180;
-        this.status(needLow && pct >= 50
+        this.status(this.state && this.state.needTap
+          ? 'I lost track of the object. Tap it on the screen to carry on.'
+          : needLow && pct >= 50
           ? 'Now crouch down and walk around it low, looking at it from the side, to capture its height.'
           : pct >= 85
             ? 'Looks good! Tap Done, or keep going to sharpen details.'
