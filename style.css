@@ -63,7 +63,8 @@ main {
 }
 @media (max-width: 860px) {
   main { grid-template-columns: 1fr; padding: 12px 16px 24px; }
-  .stage { order: -1; }
+  .stage { order: -1; position: static; }
+  .canvas-wrap:has(> .empty:not([hidden])) { min-height: 200px; }
 }
 
 .panel { display: flex; flex-direction: column; gap: 12px; }
@@ -92,6 +93,47 @@ main {
 .dropzone.has-image .drop-hint .formats { display: none; }
 .dropzone.has-image .drop-hint span { color: #fff; font-size: 12px; }
 
+.scan-btn {
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 12px 14px; border-radius: 14px; border: 0; cursor: pointer;
+  background: var(--accent); color: #fff; font: inherit;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2);
+}
+.scan-btn strong { display: block; }
+.scan-btn small { display: block; opacity: 0.85; font-size: 12px; }
+.scan-icon {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  border: 3px dashed rgba(255, 255, 255, 0.9);
+  background: radial-gradient(circle, #fff 0 5px, transparent 6px);
+}
+.scanner { position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; }
+.scanner video, .scan-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scan-overlay { touch-action: none; }
+.scan-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: linear-gradient(rgba(0, 0, 0, 0.7), transparent); pointer-events: none;
+}
+.scan-top canvas { width: 56px; height: 56px; flex: none; }
+.scan-top p { margin: 0; font-size: 15px; text-shadow: 0 1px 3px #000; }
+.scan-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 16px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+.scan-bottom canvas {
+  width: 120px; height: 120px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.scan-buttons { display: flex; gap: 8px; }
+.scan-buttons button {
+  white-space: nowrap;
+  font: inherit; font-weight: 600; height: 44px; padding: 0 18px; border-radius: 12px; border: 0;
+  background: rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer;
+}
+.scan-buttons button.primary { background: var(--accent); }
+.scan-buttons button:disabled { opacity: 0.45; }
+body.scanning { overflow: hidden; }
 .samples { font-size: 14px; color: var(--muted); }
 .formats { font-size: 12px !important; margin-top: 4px; }
 .notice { margin: 0; font-size: 13px; color: var(--muted); }

@@ -30,6 +30,10 @@
           <span class="formats">3D: GLB, OBJ (+ .mtl and texture), PLY, STL, USDZ</span>
         </div>
       </label>
+      <button id="scanBtn" class="scan-btn" type="button">
+        <span class="scan-icon" aria-hidden="true"></span>
+        <span><strong>Scan a real object</strong><small>Walk around it with your phone camera</small></span>
+      </button>
       <p id="notice" class="notice" hidden></p>
       <div class="samples">
         Try a sample:
@@ -38,23 +42,21 @@
       </div>
 
       <details class="howto">
-        <summary>Scan a real object with your iPhone</summary>
+        <summary>Tips for a good scan</summary>
         <ol>
-          <li>Install a 3D scanning app, such as Scaniverse, Polycam, or KIRI Engine. Or use Apple's
-            Object Capture in Reality Composer.</li>
-          <li>Put the object somewhere with even light and walk slowly all the way around it. Get the
-            top too, and keep the whole object in view.</li>
-          <li>Process the scan as a <b>mesh</b> (not a splat), crop away the floor, and <b>export as GLB</b>.
-            OBJ works too if you choose its .mtl and texture files along with it.</li>
-          <li>Open this page on the iPhone and choose the file from Files, or AirDrop it to your computer and drop it here.</li>
+          <li>Put the object on a table in even light, against a background that looks different from it.</li>
+          <li>Tap <b>Scan a real object</b>, allow camera and motion access, then tap the object on screen.</li>
+          <li>Walk slowly all the way around it, keeping the phone at about the object's height and the object
+            inside the dashed frame (the same distance the whole way).</li>
+          <li>Tap <b>Done</b> once the ring is full. Everything happens on your phone, and nothing is uploaded.</li>
         </ol>
-        <p>Apple's own USDZ exports use a binary format browsers can't read yet, so export GLB or OBJ when the app offers it.</p>
+        <p>Already have a scan from an app like Scaniverse or Polycam? Export it as GLB and drop it above.</p>
       </details>
 
       <fieldset id="settings">
         <legend>Sculpture</legend>
         <label class="row">
-          <span><span data-source="image">Width</span><span data-source="model" hidden>Size (longest side)</span>
+          <span><span data-source="image">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
             <output id="colsOut">36</output> studs</span>
           <input id="cols" type="range" min="12" max="80" step="4" value="36">
         </label>
@@ -131,6 +133,22 @@
     </section>
   </main>
 
+  <div id="scanner" class="scanner" hidden>
+    <video id="scanVideo" playsinline muted></video>
+    <canvas id="scanOverlay" class="scan-overlay"></canvas>
+    <div class="scan-top">
+      <canvas id="scanRing" width="112" height="112"></canvas>
+      <p id="scanStatus">Starting…</p>
+    </div>
+    <div class="scan-bottom">
+      <canvas id="scanPreview" width="240" height="240" title="Shape so far"></canvas>
+      <div class="scan-buttons">
+        <button id="scanCancel" type="button">Cancel</button>
+        <button id="scanDone" type="button" class="primary" disabled>Done</button>
+      </div>
+    </div>
+  </div>
+
   <div id="dropOverlay" class="drop-overlay" hidden>Drop to build (you can drop several files at once)</div>
 
   <script type="importmap">
@@ -144,6 +162,7 @@
   <script src="src/palette.js"></script>
   <script src="src/sculpt.js"></script>
   <script src="src/voxelize.js"></script>
+  <script src="src/scan.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
   <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->
@@ -166,7 +185,21 @@
       ]);
       return Object.assign({ DRACO_DECODER_PATH: `${CDN}libs/draco/gltf/` }, ...mods);
     };
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders });
+    // On-device object segmentation for walk-around scanning, fetched the first time someone scans.
+    const MEDIAPIPE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35';
+    const SEGMENTER_MODEL =
+      'https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite';
+    const loadSegmenter = async () => {
+      const { FilesetResolver, InteractiveSegmenter } = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
+      const fileset = await FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
+      const create = (delegate) => InteractiveSegmenter.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: SEGMENTER_MODEL, delegate },
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+      });
+      try { return await create('GPU'); } catch (err) { return create('CPU'); }
+    };
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter });
   </script>
 </body>
 </html>

@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
-    sample: $('sample'), sample3d: $('sample3d'), notice: $('notice'),
+    sample: $('sample'), sample3d: $('sample3d'), notice: $('notice'), scanBtn: $('scanBtn'),
     cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
     order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
@@ -51,9 +51,39 @@
     state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
     // The orbit hint has done its job once someone drags the view.
     state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
+    state.scanner = new L.Scanner(THREE, {
+      root: $('scanner'), video: $('scanVideo'), overlay: $('scanOverlay'), ring: $('scanRing'),
+      status: $('scanStatus'), preview: $('scanPreview'), cancel: $('scanCancel'), done: $('scanDone'),
+    }, useScan);
     if (state.source) build(true);
     requestAnimationFrame(tick);
   };
+
+  el.scanBtn.addEventListener('click', async () => {
+    if (!state.scanner) return notice('Still loading, try again in a moment.', true);
+    notice('');
+    try {
+      await state.scanner.open();
+    } catch (err) {
+      console.error(err);
+      state.scanner.close();
+      notice(err.message || String(err), true);
+    }
+  });
+
+  // A finished walk-around scan (also usable from the console with a hand-built Legofy.Carver).
+  function useScan(carver) {
+    state.source = { kind: 'scan', carver };
+    el.modelCard.querySelector('strong').textContent = 'Your scan';
+    el.modelCard.querySelector('span').textContent = `${carver.count} camera views`;
+    el.modelCard.hidden = false;
+    el.preview.hidden = true;
+    el.dropzone.classList.add('has-image');
+    notice('');
+    showSettingsFor('scan');
+    build(true);
+  }
+  L.useScan = useScan;
 
   // ---------- input: images and 3D scans ----------
 
@@ -102,7 +132,9 @@
   }
 
   function showSettingsFor(kind) {
-    for (const node of document.querySelectorAll('[data-source]')) node.hidden = node.dataset.source !== kind;
+    for (const node of document.querySelectorAll('[data-source]')) {
+      node.hidden = !node.dataset.source.split(' ').includes(kind);
+    }
   }
 
   // Scans often come as several files (an .obj with its .mtl and texture, a .gltf with .bin),
@@ -258,7 +290,8 @@
     if (!state.source || !state.scene) return;
     const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value };
     try {
-      state.model = state.source.kind === 'image'
+      const { kind } = state.source;
+      state.model = kind === 'image'
         ? L.buildSculpture(state.source.img, {
           ...shared,
           cols: +el.cols.value,
@@ -266,7 +299,9 @@
           removeBackground: el.removeBg.checked,
           dither: el.dither.checked,
         })
-        : L.bricksFromVolume(L.voxelizeModel(state.T, state.source.root, { size: +el.cols.value, up: el.up.value }), shared);
+        : L.bricksFromVolume(kind === 'scan'
+          ? state.source.carver.volume({ size: +el.cols.value })
+          : L.voxelizeModel(state.T, state.source.root, { size: +el.cols.value, up: el.up.value }), shared);
     } catch (err) {
       console.error(err);
       notice(`Couldn't build that: ${err.message || err}`, true);

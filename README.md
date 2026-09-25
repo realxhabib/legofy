@@ -25,22 +25,37 @@ Any static host works.
 - **Netlify / Cloudflare Pages / Vercel:** connect the repo with no build command and `/` as the output
   directory, or drag the folder onto Netlify Drop.
 
-## 3D scans from an iPhone
+## Scan a real object in the browser
 
-Websites can't use the iPhone's LiDAR camera directly, so capture with a scanning app and drop the result in:
+Tap **Scan a real object** on a phone, tap the object on screen, and walk slowly around it. There's
+no app, no marker and no upload: everything runs on the phone.
 
-1. Scan the object with an app such as Scaniverse, Polycam or KIRI Engine (or Apple's Object Capture in
-   Reality Composer), walking slowly all the way around it.
-2. Process it as a mesh, crop away the floor, and export **GLB**. OBJ works too if you pick its `.mtl` and
-   texture files along with it. PLY (mesh or colored point cloud) and STL also load.
-3. Open the site on the phone and choose the file, or AirDrop it to a computer and drop it on the page.
+- **Where's the camera?** The phone's motion sensors (DeviceOrientation) give its orientation. Because the
+  user keeps the object in view at a steady distance (a dashed guide frame shows the size to keep), the
+  camera sits on the ray through the object's silhouette, and that pins down its position.
+- **What's the object?** MediaPipe's on-device interactive segmenter cuts it out of each frame. After the
+  first tap it's prompted with a scribble down the middle of the shape carved so far, so it keeps
+  selecting the whole object rather than one part.
+- **Mapping:** each captured view (a new one every ~7° of movement) carves away the voxels it sees background
+  through, a "visual hull" that updates live in the preview. A voxel only goes if at least two views agree.
+  Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. The space
+  hidden under the object is trimmed using the estimated tabletop height.
+- **Colors:** each surface voxel takes the majority LEGO color from the frames that face it most directly,
+  using only pixels well inside the cut-out.
 
-Apple's binary USDZ files can't be read by browsers yet, so prefer GLB. If a model comes in lying on its
-side, change **Which way is up?**.
+Limits: the object needs to stand out from its background. Hollows and dents (the inside of a bowl)
+fill in. Needs https (Vercel is fine) and camera plus motion permission. iOS asks for motion access
+when you tap Scan.
 
-The scan is scaled so its longest side matches **Size**. Every triangle is sampled densely, each sample takes
-its color from the texture, vertex colors or material, and each voxel keeps the LEGO color most of its samples
-agree on. The closed interior is filled, and then it's hollowed and tiled into bricks just like an image.
+## 3D scans from other apps
+
+Already have a scan from Scaniverse, Polycam, KIRI Engine or similar? Export it as **GLB** (or OBJ with
+its `.mtl` and texture, PLY, STL) and drop it on the page. Apple's binary USDZ files can't be read by
+browsers yet. If a model comes in lying on its side, change **Which way is up?**.
+
+Every triangle is sampled densely, each sample takes its color from the texture, vertex colors or material,
+and each voxel keeps the LEGO color most of its samples agree on. The closed interior is filled, and then
+it's hollowed and tiled into bricks just like an image.
 
 ## How it works
 
@@ -70,6 +85,7 @@ Keyboard: `Space` play/pause, `←`/`→` step, `Home`/`End` restart/finish.
 
 - `src/palette.js`: LEGO color palette plus the sRGB → Lab conversion
 - `src/sculpt.js`: resize, background removal, quantize, inflate to 3D, hollow, tile layers into bricks, build order, parts list
+- `src/scan.js`: walk-around scanning (camera, motion sensors, segmentation, visual-hull carving)
 - `src/voxelize.js`: 3D model → colored voxel volume, plus the sample toadstool
 - `src/scene3d.js`: three.js scene (instanced bricks and studs, baseplate, lighting, drop animation, camera)
 - `src/app.js`: UI, input handling, playback loop
