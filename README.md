@@ -30,16 +30,20 @@ Any static host works.
 Tap **Scan a real object** on a phone, tap the object on screen, and walk slowly around it. There's
 no app, no marker and no upload: everything runs on the phone.
 
-- **Where's the camera?** The phone's motion sensors (DeviceOrientation) give its orientation. Because the
-  user keeps the object in view at a steady distance (a dashed guide frame shows the size to keep), the
-  camera sits on the ray through the object's silhouette, and that pins down its position.
-- **What's the object?** MediaPipe's on-device interactive segmenter cuts it out of each frame. After the
-  first tap it's prompted with a scribble down the middle of the shape carved so far, so it keeps
-  selecting the whole object rather than one part.
+- **Where's the camera?** The phone's motion sensors (DeviceOrientation) give its orientation, and the camera
+  must sit somewhere on the ray through the object's silhouette. How far along that ray: at first from how
+  steeply you're looking down (people hold the phone at a steady height while walking round); once half
+  the circle is covered, by trying distances and keeping the one whose outline best matches the shape so far,
+  which copes with walking closer or crouching. After **Done**, every capture's distance is fine-tuned.
+- **What's the object?** MediaPipe's on-device interactive segmenter cuts it out of each frame, zoomed in on a
+  full-resolution crop around the object so small things still get clean edges. After the first tap it's
+  prompted with a scribble down the middle of the shape carved so far, so it keeps selecting the whole
+  object; a cut-out that doesn't contain the prompted points is retried once, then dropped.
 - **Mapping:** each captured view (a new one every ~7° of movement) carves away the voxels it sees background
   through, a "visual hull" that updates live in the preview. A voxel only goes if at least two views agree.
-  Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. The space
-  hidden under the object is trimmed using the estimated tabletop height.
+  Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. Nothing can see
+  under the object, so the floor is found where the rays grazing the bottom of each outline first touch
+  the shape, and the phantom block below it is trimmed.
 - **Colors:** each surface voxel takes the majority LEGO color from the frames that face it most directly,
   using only pixels well inside the cut-out.
 - **You stay in control:** after tapping the object, the scanner highlights what it picked and waits for a

@@ -11,6 +11,10 @@
   const G = 64;                           // carving resolution per axis
   const ANALYSIS_LONG_SIDE = 400;         // frames are analysed at this size (px)
   const MIN_NEW_ANGLE = (7 * Math.PI) / 180;
+  const MIN_DIP = (12 * Math.PI) / 180;    // below this, looking down says too little about distance
+  const WIDE_SCALES = [0.3, 0.38, 0.47, 0.57, 0.68, 0.8, 0.9, 1, 1.12, 1.27, 1.45, 1.7, 2, 2.4];
+  const REFINE_SCALES = [0.75, 0.83, 0.9, 0.95, 1, 1.05, 1.11, 1.2, 1.33];
+  const FINE_SCALES = [0.9, 0.94, 0.97, 1, 1.03, 1.07, 1.11];
 
   // ---------- reconstruction ----------
 
@@ -104,17 +108,13 @@
       const stats = maskStats(mask, w, h);
       if (stats.area < w * h * 0.005 || stats.area > w * h * 0.8) return null;
       if (stats.edge > (w + h) * 0.04) return null;
-      if (this.views.length >= 3) {
-        const areas = this.views.map((v) => v.stats.area).sort((a, b) => a - b);
-        const median = areas[areas.length >> 1];
-        if (stats.area > median * 2.5 || stats.area < median / 2.5) return null; // grabbed the wrong thing
-      }
       const f = Math.max(w, h) / 2 / Math.tan(FOV_LONG / 2);
       const R = Float64Array.from(rotation);
+      // The object's centre lies on the ray through the silhouette centroid.
+      const dir = normalize(rotate(R, [(stats.cx + 0.5 - w / 2) / f, -(stats.cy + 0.5 - h / 2) / f, -1]));
 
       if (!this.all.length) {
-        // Units: the object is about 2 tall. The camera keeps this distance for the whole scan
-        // (the guide frame on screen asks the user to keep the object the same size).
+        // Units: the object is about 2 across in this first view.
         const halfH = (stats.maxY - stats.minY + 1) / 2 / f;
         const halfW = (stats.maxX - stats.minX + 1) / 2 / f;
         this.distance = 1 / halfH;
@@ -122,16 +122,32 @@
         this.step = (2 * this.half) / G;
         this.outside = new Uint16Array(G * G * G);
         this.seen = new Uint16Array(G * G * G);
+        // People hold the phone at a fairly steady height while walking around, so when looking down
+        // at the object, how steeply we look down tells us how far away we are.
+        const dip = Math.asin(Math.max(-1, Math.min(1, -dir[1])));
+        this.cameraHeight = dip > MIN_DIP ? this.distance * Math.sin(dip) : 0;
       }
-
-      // The object's centre lies on the ray through the silhouette centroid.
-      const dir = normalize(rotate(R, [(stats.cx + 0.5 - w / 2) / f, -(stats.cy + 0.5 - h / 2) / f, -1]));
-      const pos = [-dir[0] * this.distance, -dir[1] * this.distance, -dir[2] * this.distance];
       const grow = Math.max(1, Math.round(w / 150));
-      const view = { image, bin: binarize(mask, w, h, grow), w, h, f, R, pos, stats };
+      const view = { image, bin: binarize(mask, w, h, grow), w, h, f, R, dir, stats };
+      let dist = this.distanceFor(dir);
+      if (this.yawBins().size >= 12) {
+        // Seen from half the way round, the shape is trustworthy: find this camera's distance by
+        // matching its cut-out to the shape. (Earlier, the loose shape would bias this.)
+        // This copes with walking closer, crouching down, or raising the phone.
+        const fit = this.fitDistance(view, this.solidList(), dist, WIDE_SCALES);
+        if (fit.score < 0.35) return null; // matches nothing we've seen: probably the wrong thing
+        dist = fit.dist;
+      } else if (this.views.length >= 3) {
+        // Early on, a cut-out far bigger or smaller than the others (allowing for distance) is suspect.
+        const sizes = this.views.map((v) => v.stats.area * v.dist * v.dist).sort((a, b) => a - b);
+        const median = sizes[sizes.length >> 1], size = stats.area * dist * dist;
+        if (size > median * 3 || size < median / 3) return null;
+      }
+      view.dist = view.base = dist;
+      view.pos = [-dir[0] * dist, -dir[1] * dist, -dir[2] * dist];
       // Once the shape is established, a cut-out that misses a big part of what the shape says should
       // be visible (e.g. only the lid of a jar) would wrongly carve that part away, so skip it.
-      if (this.yawBins().size >= 12 && this.coverageOf(view) < 0.75) return null;
+      if (this.yawBins().size >= 12 && this.coverageOf(view) < 0.6) return null;
       view.core = core(mask, w, h, grow + 1);
       view.enabled = true;
       view.index = this.all.length;
@@ -139,6 +155,75 @@
       this.views.push(view);
       this.carve(view, 1);
       return view;
+    }
+
+    // Camera distance to the object centre for a view looking along `dir`.
+    distanceFor(dir) {
+      const dip = Math.asin(Math.max(-1, Math.min(1, -dir[1])));
+      if (!this.cameraHeight || dip <= MIN_DIP) return this.distance;
+      return Math.min(2 * this.distance, Math.max(0.5 * this.distance, this.cameraHeight / Math.sin(dip)));
+    }
+
+    // Fine-tune every capture's distance so its cut-out best matches the shape seen by all the others
+    // (people drift closer and further, and hold the phone higher or lower, as they walk).
+    solidList() {
+      const solids = [];
+      for (let i = 0; i < this.outside.length; i++) if (this.solidAt(i)) solids.push(i);
+      return solids;
+    }
+
+    // Try the view at several distances along its ray; keep the one whose projected shape overlaps
+    // its cut-out best (intersection over union).
+    fitDistance(view, solids, base, scales) {
+      const p = [0, 0, 0];
+      const hit = new Uint8Array(view.w * view.h);
+      const r = Math.max(0, Math.round((view.f * this.step) / base / 2));
+      let best = base, bestScore = -1, baseScore = 0;
+      for (const k of scales) {
+        const d = base * k;
+        const trial = { ...view, pos: [-view.dir[0] * d, -view.dir[1] * d, -view.dir[2] * d] };
+        hit.fill(0);
+        for (const i of solids) {
+          const px = this.project(trial, this.center(i, p));
+          if (px < 0) continue;
+          hit[px] = 1;
+          if (r) { // splat so a far-away shape doesn't turn into a sparse dot cloud
+            const u = px % view.w, v = (px - u) / view.w;
+            for (let dy = -r; dy <= r; dy++) {
+              for (let dx = -r; dx <= r; dx++) {
+                const x = u + dx, y = v + dy;
+                if (x >= 0 && y >= 0 && x < view.w && y < view.h) hit[y * view.w + x] = 1;
+              }
+            }
+          }
+        }
+        let both = 0, either = 0;
+        for (let q = 0; q < hit.length; q++) {
+          const a = hit[q], b = view.bin[q];
+          both += a & b; either += a | b;
+        }
+        const score = either ? both / either : 0;
+        if (k === 1) baseScore = score;
+        if (score > bestScore) { bestScore = score; best = d; }
+      }
+      return { dist: best, score: bestScore, baseScore };
+    }
+
+    async refine(onProgress) {
+      for (let pass = 0; pass < 2; pass++) {
+        for (let n = 0; n < this.views.length; n++) {
+          const view = this.views[n];
+          this.carve(view, -1);
+          const fit = this.fitDistance(view, this.solidList(), view.dist, pass ? FINE_SCALES : REFINE_SCALES);
+          // Only move a capture when it clearly fits better; small gains are mostly segmentation noise.
+          const best = fit.score - fit.baseScore > 0.03 ? fit.dist : view.dist;
+          view.dist = best;
+          view.pos = [-view.dir[0] * best, -view.dir[1] * best, -view.dir[2] * best];
+          this.carve(view, 1);
+          if (onProgress) onProgress((pass * this.views.length + n + 1) / (2 * this.views.length));
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
     }
 
     // Leave a capture out (or put it back). Its carving votes are simply taken back.
@@ -210,7 +295,8 @@
       if (this.views.length < 3) return { keypoint: fallback };
       const f = Math.max(w, h) / 2 / Math.tan(FOV_LONG / 2);
       const fw = Carver.forward(R);
-      const view = { R, w, h, f, pos: [-fw[0] * this.distance, -fw[1] * this.distance, -fw[2] * this.distance] };
+      const d = this.distanceFor(fw);
+      const view = { R, w, h, f, pos: [-fw[0] * d, -fw[1] * d, -fw[2] * d] };
       const bands = 6;
       const rows = Array.from({ length: bands }, () => []);
       const ys = [];
@@ -222,8 +308,12 @@
         if (k >= 0) ys.push(k);
       }
       if (ys.length < 20) return { keypoint: fallback };
-      let minV = h, maxV = 0;
-      for (const k of ys) { const v = Math.floor(k / w); minV = Math.min(minV, v); maxV = Math.max(maxV, v); }
+      let minV = h, maxV = 0, minU = w, maxU = 0;
+      for (const k of ys) {
+        const v = Math.floor(k / w), u = k % w;
+        minV = Math.min(minV, v); maxV = Math.max(maxV, v); minU = Math.min(minU, u); maxU = Math.max(maxU, u);
+      }
+      const box = { x0: minU / w, y0: minV / h, x1: (maxU + 1) / w, y1: (maxV + 1) / h };
       for (const k of ys) {
         const v = Math.floor(k / w), u = k % w;
         const b = Math.min(bands - 1, Math.floor(((v - minV) / (maxV - minV + 1)) * bands));
@@ -238,7 +328,7 @@
         const v = pts.reduce((sum, q) => sum + q[1], 0) / pts.length;
         scribble.push({ x: (u + 0.5) / w, y: (v + 0.5) / h });
       }
-      return scribble.length >= 2 ? { scribble } : { keypoint: fallback };
+      return scribble.length >= 2 ? { scribble, box } : { keypoint: fallback };
     }
 
     center(i, out) {
@@ -278,26 +368,33 @@
       return this.outside[i] <= allowed;
     }
 
-    // Views looking down can't carve the space hidden under the object, so estimate the tabletop
-    // height: the lowest silhouette point is the front edge of the base, which touches the table.
+    // Nothing can see underneath the object, so the carved shape keeps a phantom block below where
+    // it stands. Find the floor: the ray through the lowest point of each outline grazes the object
+    // where it touches the floor, so the point where that ray first enters the carved shape is at (or
+    // just above) floor level. A low percentile over all views is the floor; everything below goes.
     floorHeight() {
       const heights = [];
+      const { half, step } = this;
       for (const v of this.views) {
-        const { stats, R, pos, f, w, h } = v;
-        const d = normalize(rotate(R, [(stats.cx + 0.5 - w / 2) / f, -(stats.maxY + 1 - h / 2) / f, -1]));
-        if (d[1] >= 0) continue;
-        const baseR = (stats.baseHalf * this.distance) / f;
-        // Point on the ray whose horizontal distance from the vertical axis equals the base radius.
-        const a = d[0] * d[0] + d[2] * d[2];
-        const b = 2 * (pos[0] * d[0] + pos[2] * d[2]);
-        const c = pos[0] * pos[0] + pos[2] * pos[2] - baseR * baseR;
-        const disc = b * b - 4 * a * c;
-        const t = disc >= 0 ? (-b - Math.sqrt(disc)) / (2 * a) : -b / (2 * a);
-        heights.push(pos[1] + t * d[1]);
+        const { stats, R, pos, f, w, h, bin } = v;
+        let row = -1, sx = 0, n = 0;
+        for (let y = h - 1; y >= 0 && row < 0; y--) {
+          for (let x = 0; x < w; x++) if (bin[y * w + x]) { row = y; sx += x; n++; }
+        }
+        if (row < 0) continue;
+        const d = normalize(rotate(R, [(sx / n + 0.5 - w / 2) / f, -(row + 1 - h / 2) / f, -1]));
+        if (d[1] > -0.02) continue; // looking up or level: says nothing about the floor
+        for (let t = 0; t < v.dist * 3; t += step * 0.5) {
+          const x = Math.floor((pos[0] + t * d[0] + half) / step);
+          const y = Math.floor((pos[1] + t * d[1] + half) / step);
+          const z = Math.floor((pos[2] + t * d[2] + half) / step);
+          if (x < 0 || y < 0 || z < 0 || x >= G || y >= G || z >= G) continue;
+          if (this.solidAt((y * G + z) * G + x)) { heights.push(pos[1] + t * d[1]); break; }
+        }
       }
-      if (!heights.length) return -Infinity;
+      if (heights.length < 3) return -Infinity;
       heights.sort((x, y) => x - y);
-      return heights[Math.floor(heights.length * 0.5)];
+      return heights[Math.floor(heights.length * 0.2)] - step * 0.5;
     }
 
     occupancy() {
@@ -432,6 +529,58 @@
       return { cols, rows, depth, voxels };
     }
   }
+
+  // ---------- zoomed-in segmentation ----------
+
+  // Small objects come out rough when segmented in a whole frame, so cut out a crop around where the
+  // object should be (from the full-resolution source), segment that at high resolution and map the
+  // result back to the analysis frame. `box` is where we expect the object, in 0..1 frame units.
+  const cropCanvas = document.createElement('canvas');
+  const cropCtx = cropCanvas.getContext('2d');
+  L.segmentZoomed = function (segmenter, source, srcW, srcH, w, h, roi, box) {
+    const aspect = srcW / srcH;
+    let cx = 0.5, cy = 0.5, size = 0.75; // size: crop height as a share of the frame height
+    if (box) {
+      cx = (box.x0 + box.x1) / 2; cy = (box.y0 + box.y1) / 2;
+      size = Math.max(box.y1 - box.y0, (box.x1 - box.x0) * aspect) * 2;
+    } else {
+      const q = roi.keypoint || roi.scribble[0];
+      cx = q.x; cy = q.y;
+    }
+    size = Math.min(1, Math.max(0.3, size));
+    const ch = size, cw = Math.min(1, size / aspect); // square in pixels
+    const x0 = Math.min(1 - cw, Math.max(0, cx - cw / 2)), y0 = Math.min(1 - ch, Math.max(0, cy - ch / 2));
+    const pxW = cw * srcW, pxH = ch * srcH;
+    const k = Math.min(1, 480 / Math.max(pxW, pxH));
+    cropCanvas.width = Math.max(8, Math.round(pxW * k));
+    cropCanvas.height = Math.max(8, Math.round(pxH * k));
+    cropCtx.drawImage(source, x0 * srcW, y0 * srcH, pxW, pxH, 0, 0, cropCanvas.width, cropCanvas.height);
+    const toCrop = (q) => ({ x: Math.min(1, Math.max(0, (q.x - x0) / cw)), y: Math.min(1, Math.max(0, (q.y - y0) / ch)) });
+    const cropRoi = roi.scribble ? { scribble: roi.scribble.map(toCrop) } : { keypoint: toCrop(roi.keypoint) };
+    const result = segmenter.segment(cropCanvas, cropRoi);
+    const conf = result.confidenceMasks && result.confidenceMasks[0];
+    const m = conf ? conf.getAsFloat32Array() : null;
+    const mw = conf ? conf.width : 0, mh = conf ? conf.height : 0;
+    const mask = new Float32Array(w * h);
+    if (m) {
+      // Average the high-resolution mask over each analysis pixel.
+      for (let y = 0; y < h; y++) {
+        const fy0 = ((y / h - y0) / ch) * mh, fy1 = (((y + 1) / h - y0) / ch) * mh;
+        if (fy1 <= 0 || fy0 >= mh) continue;
+        for (let x = 0; x < w; x++) {
+          const fx0 = ((x / w - x0) / cw) * mw, fx1 = (((x + 1) / w - x0) / cw) * mw;
+          if (fx1 <= 0 || fx0 >= mw) continue;
+          let sum = 0, n = 0;
+          for (let yy = Math.max(0, Math.floor(fy0)); yy < Math.min(mh, Math.ceil(fy1)); yy++) {
+            for (let xx = Math.max(0, Math.floor(fx0)); xx < Math.min(mw, Math.ceil(fx1)); xx++) { sum += m[yy * mw + xx]; n++; }
+          }
+          if (n) mask[y * w + x] = sum / n;
+        }
+      }
+    }
+    result.close();
+    return mask;
+  };
 
   // ---------- phone pose ----------
 
@@ -599,8 +748,17 @@
       this.ui.review.hidden = false;
       this.reviewing = true;
       this.renderReviewGrid();
-      this.refreshReview();
+      this.ui.reviewInfo.textContent = 'Lining up your captures…';
+      this.ui.reviewBuild.disabled = true;
       requestAnimationFrame(() => this.reviewLoop());
+      this.refining = true;
+      this.carver.refine((f) => { this.ui.reviewInfo.textContent = `Lining up your captures… ${Math.round(f * 100)}%`; })
+        .catch((err) => console.error(err))
+        .then(() => {
+          this.refining = false;
+          this.ui.reviewBuild.disabled = false;
+          if (this.reviewing) this.refreshReview();
+        });
     }
 
     build() {
@@ -651,12 +809,30 @@
     capture() {
       const rotation = this.rotation.slice();
       const image = this.grabFrame();
+      const { video } = this.ui;
+      const last = this.carver.all[this.carver.all.length - 1];
+      const lastBox = last && {
+        x0: last.stats.minX / last.w, x1: (last.stats.maxX + 1) / last.w,
+        y0: last.stats.minY / last.h, y1: (last.stats.maxY + 1) / last.h,
+      };
+      const segment = (roi) => L.segmentZoomed(this.segmenter, video, video.videoWidth, video.videoHeight,
+        image.width, image.height, roi, roi.box || (this.phase === 'scanning' ? lastBox : null));
+      // The cut-out should contain the points we pointed at; if not, the finder grabbed the floor
+      // or a shadow. Retry once with just the last known centre, then give up on this frame.
+      const holds = (m, roi) => {
+        const pts = roi.scribble || [roi.keypoint];
+        const inside = pts.filter((q) => m[Math.min(image.height - 1, Math.floor(q.y * image.height)) * image.width +
+          Math.min(image.width - 1, Math.floor(q.x * image.width))] >= 0.5).length;
+        return inside >= Math.ceil(pts.length * 0.6);
+      };
       const roi = this.carver.promptFor(rotation, image.width, image.height, this.keypoint);
-      const result = this.segmenter.segment(this.frame, roi);
-      const conf = result.confidenceMasks && result.confidenceMasks[0];
-      const mask = conf ? Float32Array.from(conf.getAsFloat32Array()) : null;
-      result.close();
-      if (!mask || mask.length !== image.width * image.height) return null;
+      let mask = segment(roi);
+      if (this.phase === 'scanning' && mask && !holds(mask, roi)) {
+        const retry = { keypoint: this.keypoint };
+        mask = segment(retry);
+        if (mask && !holds(mask, retry)) mask = null;
+      }
+      if (!mask) return null;
       if (this.phase !== 'scanning') {
         // Picking the object: hold the cut-out for the user to confirm.
         const { width: w, height: h } = image;
@@ -730,9 +906,14 @@
       ui.done.disabled = carver.count < 4;
       ui.done.textContent = carver.count ? `Done · ${carver.count}` : 'Done';
       if (carver.count) {
-        this.status(pct >= 85
-          ? 'Looks good! Tap Done, or keep going to sharpen details.'
-          : `Walk slowly around the object and keep it inside the frame. ${pct}% covered.`);
+        // Views from above only see the outline, not the height: ask for some low side views too.
+        const lowest = Math.min(...carver.views.map((v) => Math.asin(Math.max(-1, Math.min(1, -v.dir[1])))));
+        const needLow = carver.count >= 8 && lowest > (35 * Math.PI) / 180;
+        this.status(needLow && pct >= 50
+          ? 'Now crouch down and walk around it low, looking at it from the side, to capture its height.'
+          : pct >= 85
+            ? 'Looks good! Tap Done, or keep going to sharpen details.'
+            : `Walk slowly around the object and keep it inside the frame. ${pct}% covered.`);
       }
       this.drawRing(bins);
       this.drawPreview();
@@ -848,6 +1029,7 @@
         num.textContent = view.index + 1;
         item.append(view.thumb, eye, badge, num);
         const toggle = () => {
+          if (this.refining) return;
           if (view.enabled && this.carver.count <= 4) return; // keep enough to carve with
           this.carver.setEnabled(view, !view.enabled);
           this.refreshReview();
@@ -931,6 +1113,7 @@
     reviewLoop() {
       if (!this.reviewing) { if (this.r3d) this.r3d.framed = false; return; }
       requestAnimationFrame(() => this.reviewLoop());
+      if (!this.r3d) return;
       const { renderer, scene, camera, controls } = this.r3d;
       const c = this.ui.reviewCanvas;
       const w = c.clientWidth, h = c.clientHeight;
