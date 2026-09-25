@@ -258,3 +258,53 @@
     return group;
   };
 })(window.Legofy = window.Legofy || {});
+
+// A full Starship stack (Super Heavy booster + Ship), in meters: ~121 m tall, 9 m across.
+// Stainless steel with the black heat-shield tiles on one side, grid fins and flaps.
+(function (L) {
+  L.starshipModel = function (T) {
+    const group = new T.Group();
+    const R = 4.5;
+    const steel = new T.MeshStandardMaterial({ color: '#b9bec4' });
+    const darkSteel = new T.MeshStandardMaterial({ color: '#8d9196' });
+    const tiles = new T.MeshStandardMaterial({ color: '#1f2124' });
+    const hardware = new T.MeshStandardMaterial({ color: '#55595e' });
+    const add = (geometry, material, x, y, z, rotY = 0) => {
+      const m = new T.Mesh(geometry, material);
+      m.position.set(x, y, z);
+      m.rotation.y = rotY;
+      group.add(m);
+      return m;
+    };
+
+    // Super Heavy: engine skirt, booster tank section, grid fins, hot-staging ring.
+    add(new T.CylinderGeometry(R, R, 4, 48), darkSteel, 0, 2, 0);
+    add(new T.CylinderGeometry(R, R, 67, 48), steel, 0, 4 + 33.5, 0);
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      add(new T.BoxGeometry(4, 3.5, 0.8), hardware, Math.cos(a) * (R + 2), 67, Math.sin(a) * (R + 2), -a);
+    }
+    add(new T.CylinderGeometry(R, R, 1.8, 48), hardware, 0, 71.9, 0);
+
+    // Ship: steel barrel with the heat shield wrapped around the +x half, then the nose.
+    const shipBase = 72.8, barrel = 32, nose = 121 - shipBase - barrel;
+    add(new T.CylinderGeometry(R, R, barrel, 48), steel, 0, shipBase + barrel / 2, 0);
+    const shield = new T.CylinderGeometry(R + 0.12, R + 0.12, barrel, 48, 1, true, 0, Math.PI);
+    add(shield, tiles, 0, shipBase + barrel / 2, 0);
+    const profile = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      profile.push(new T.Vector2(R * Math.pow(1 - Math.pow(t, 1.8), 0.55), t * nose));
+    }
+    const noseTop = shipBase + barrel;
+    add(new T.LatheGeometry(profile, 48), steel, 0, noseTop, 0);
+    add(new T.LatheGeometry(profile.map((p) => new T.Vector2(p.x + 0.12, p.y)), 48, 0, Math.PI), tiles, 0, noseTop, 0);
+
+    // Flaps sit where the tiles meet the steel (the ±z edges): big aft pair, smaller forward pair.
+    for (const side of [-1, 1]) {
+      add(new T.BoxGeometry(0.6, 11, 4.5), tiles, 0.8, shipBase + 8, side * (R + 2.2));
+      add(new T.BoxGeometry(0.6, 7, 3.2), tiles, 0.8, noseTop + 3.5, side * (R + 1.2));
+    }
+    return group;
+  };
+})(window.Legofy = window.Legofy || {});

@@ -57,6 +57,14 @@ Every triangle is sampled densely, each sample takes its color from the texture,
 and each voxel keeps the LEGO color most of its samples agree on. The closed interior is filled, and then
 it's hollowed and tiled into bricks just like an image.
 
+## At real size
+
+Under the settings, **At real size** takes a real-world height and works out what it would take to build
+the thing full size: brick count, dimensions, weight, cost and build time. For heights up to twice
+the model it scales this build directly. Beyond that it assumes a sturdy hollow shell 2 studs thick made of
+2×4 bricks, so the count grows with surface area (or with volume when **Hollow** is off). The
+**life-size Starship** sample (the full ~121 m stack) comes out around 11 million bricks.
+
 ## How it works
 
 1. **Input:** drag an image anywhere on the page, click the drop zone, or paste from the clipboard.

@@ -357,7 +357,20 @@
     }
     ORDERS[order](bricks, cols, depth);
     bricks.forEach((b, i) => { b.step = i; });
-    return { cols, rows, depth, bricks, palette: L.PALETTE };
+
+    // Solid and outer-shell voxel counts, for scaling estimates (e.g. "how many at real size?").
+    let solidVoxels = 0, shellVoxels = 0;
+    for (let level = 0; level < rows; level++) {
+      for (let z = 0; z < depth; z++) {
+        for (let x = 0; x < cols; x++) {
+          if (voxels[(level * depth + z) * cols + x] < 0) continue;
+          solidVoxels++;
+          if (!(solid(x - 1, level, z) && solid(x + 1, level, z) && solid(x, level - 1, z) &&
+            solid(x, level + 1, z) && solid(x, level, z - 1) && solid(x, level, z + 1))) shellVoxels++;
+        }
+      }
+    }
+    return { cols, rows, depth, bricks, palette: L.PALETTE, stats: { solidVoxels, shellVoxels } };
   };
 
   L.nearestColor = (r, g, b) => nearest(L.PALETTE, r, g, b);

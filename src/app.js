@@ -3,7 +3,9 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
-    sample: $('sample'), sample3d: $('sample3d'), notice: $('notice'), scanBtn: $('scanBtn'),
+    sample: $('sample'), sample3d: $('sample3d'), sampleStarship: $('sampleStarship'),
+    notice: $('notice'), scanBtn: $('scanBtn'),
+    life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
     order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
@@ -114,8 +116,8 @@
     build(true);
   }
 
-  function useModel(root, name) {
-    state.source = { kind: 'model', root, name };
+  function useModel(root, name, extra = {}) {
+    state.source = { kind: 'model', root, name, ...extra };
     let triangles = 0;
     root.traverse((o) => {
       if (o.isMesh && o.geometry) triangles += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
@@ -256,6 +258,13 @@
   el.sample3d.addEventListener('click', () => {
     if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)');
   });
+  el.sampleStarship.addEventListener('click', () => {
+    if (!state.T) return;
+    // Tall and thin: give it enough studs to keep the fins and flaps.
+    el.cols.value = 120;
+    el.colsOut.value = 120;
+    useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 121 });
+  });
 
   // A rubber duck on a plain background: a good subject to inflate into a sculpture.
   function sampleImage() {
@@ -313,6 +322,7 @@
     }
     state.parts = L.partsList(state.model.bricks, state.model.palette);
     renderParts();
+    renderLifeSize();
     el.empty.hidden = true;
     el.canvas.hidden = false;
     if (el.hint.isConnected) el.hint.hidden = false;
@@ -482,6 +492,82 @@
       li.classList.toggle('current', part.key === current);
     }
   }
+
+  // ---------- real-size estimate ----------
+
+  const BRICK_TALL_M = 0.0096, STUD_M = 0.008;
+
+  function formatCount(n) {
+    if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} billion`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} million`;
+    return Math.round(n).toLocaleString();
+  }
+  function formatMass(g) {
+    if (g >= 1e6) return `${(g / 1e6).toLocaleString(undefined, { maximumFractionDigits: g >= 1e8 ? 0 : 1 })} tonnes`;
+    if (g >= 1e3) return `${(g / 1e3).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
+    return `${Math.round(g)} g`;
+  }
+  function formatLength(m) {
+    return m >= 1 ? `${m.toLocaleString(undefined, { maximumFractionDigits: 1 })} m` : `${(m * 100).toFixed(1)} cm`;
+  }
+  function formatDuration(seconds) {
+    const h = seconds / 3600;
+    if (h < 1) return `${Math.max(1, Math.round(seconds / 60))} minutes`;
+    if (h < 48) return `${h.toFixed(1)} hours`;
+    const d = h / 24;
+    if (d < 730) return `${Math.round(d).toLocaleString()} days`;
+    return `${(d / 365).toFixed(1)} years`;
+  }
+
+  // Scale the current build up (or down) to a real-world height. Up to about twice the model size we
+  // simply scale this build's bricks. Beyond that we assume a sturdy 2-stud-thick shell of 2×4 bricks
+  // (8 stud-cells, 2.3 g each), whose brick count grows with the surface area, or a solid fill of 2×4s
+  // when "Hollow" is off.
+  function renderLifeSize() {
+    const m = state.model;
+    if (!m) { el.life.hidden = true; return; }
+    const modelHeight = m.rows * BRICK_TALL_M;
+    // Until someone types a height, show the build at its own real size.
+    const height = state.source.realHeight || modelHeight;
+    if (document.activeElement !== el.realHeight) el.realHeight.value = +height.toFixed(3);
+    const k = +(height / modelHeight).toFixed(6);
+    const hollow = el.hollow.checked;
+    const studCells = m.bricks.reduce((n, b) => n + b.w * b.d, 0);
+
+    let bricks, cells, how;
+    if (k <= 2) {
+      bricks = m.bricks.length * k ** (hollow ? 2 : 3);
+      cells = studCells * k ** (hollow ? 2 : 3);
+      how = k === 1 ? 'Exactly this build.' : 'This build, scaled.';
+    } else if (hollow) {
+      cells = m.stats.shellVoxels * k * k * 2;
+      bricks = cells / 8;
+      how = 'Estimate: a hollow shell 2 studs thick, built from 2×4 bricks.';
+    } else {
+      cells = m.stats.solidVoxels * k ** 3;
+      bricks = cells / 8;
+      how = 'Estimate: solid all the way through, built from 2×4 bricks.';
+    }
+    const grams = cells * 0.29;       // a 2×4 brick is ~2.3 g for its 8 stud-cells
+    const dollars = bricks * 0.1;     // roughly 10¢ per brick
+    const rows = [
+      ['Bricks', `≈ ${formatCount(bricks)}`, 'big'],
+      ['Size', `${formatLength(m.cols * k * STUD_M)} × ${formatLength(m.depth * k * STUD_M)} × ${formatLength(height)} tall`],
+      ['Rows of bricks', formatCount(height / BRICK_TALL_M)],
+      ['Weight', `≈ ${formatMass(grams)}`],
+      ['Cost', `≈ $${formatCount(dollars)} at ~10¢ a brick`],
+      ['Build time', `${formatDuration(bricks)} at one brick a second, nonstop`],
+    ];
+    el.lifeStats.innerHTML = rows.map(([t, d, cls]) => `<dt>${t}</dt><dd class="${cls || ''}">${d}</dd>`).join('');
+    el.lifeNote.textContent = `${how} Based on the shape above (${m.rows} bricks tall), scaled ${k >= 10 ? Math.round(k).toLocaleString() : k.toFixed(2)}×.`;
+    el.life.hidden = false;
+  }
+
+  el.realHeight.addEventListener('input', () => {
+    if (!state.source) return;
+    const v = parseFloat(el.realHeight.value);
+    if (v > 0) { state.source.realHeight = v; renderLifeSize(); }
+  });
 
   // ---------- export ----------
 

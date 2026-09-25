@@ -38,7 +38,8 @@
       <div class="samples">
         Try a sample:
         <button id="sample" class="link-btn" type="button">duck picture</button> ·
-        <button id="sample3d" class="link-btn" type="button">3D toadstool</button>
+        <button id="sample3d" class="link-btn" type="button">3D toadstool</button> ·
+        <button id="sampleStarship" class="link-btn" type="button">life-size Starship</button>
       </div>
 
       <details class="howto">
@@ -58,7 +59,7 @@
         <label class="row">
           <span><span data-source="image">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
             <output id="colsOut">36</output> studs</span>
-          <input id="cols" type="range" min="12" max="80" step="4" value="36">
+          <input id="cols" type="range" min="12" max="120" step="4" value="36">
         </label>
         <label class="row" data-source="model" hidden>
           <span>Which way is up?</span>
@@ -90,6 +91,16 @@
         <label class="check" data-source="image"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
         <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
       </fieldset>
+
+      <section id="life" class="life" hidden>
+        <h2>At real size</h2>
+        <label class="row">
+          <span>How tall is the real thing? (meters)</span>
+          <input id="realHeight" type="number" min="0.01" step="any" inputmode="decimal">
+        </label>
+        <dl id="lifeStats"></dl>
+        <p class="fine" id="lifeNote"></p>
+      </section>
 
       <section class="parts">
         <h2>Parts <small id="partsSummary"></small></h2>
