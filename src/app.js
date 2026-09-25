@@ -96,6 +96,8 @@
 
   function loadFiles(fileList) {
     const files = [...(fileList || [])];
+    const heic = files.find((f) => /\.(heic|heif)$/i.test(f.name) || /hei[cf]/.test(f.type));
+    if (heic) return loadHeic(heic);
     if (files.some((f) => MODEL_TYPES.includes(extOf(f)))) return loadModelFiles(files);
     const image = files.find((f) => f.type.startsWith('image/'));
     if (image) return loadImage(image);
@@ -110,13 +112,53 @@
     img.src = url;
   }
 
-  function useImage(img, previewSrc) {
+  // HEIC: a spatial photo carries two views (left and right eye) that give real depth. Browsers can't
+  // read HEIC themselves, so it's decoded with libheif (fetched on first use).
+  async function loadHeic(file) {
+    if (!state.T) return notice('Still loading, try again in a moment.', true);
+    try {
+      notice(`Reading ${file.name}…`);
+      const libheif = await state.T.loadHeif();
+      const views = await L.decodeHeic(libheif, new Uint8Array(await file.arrayBuffer()));
+      if (!views.length) throw new Error('no images inside');
+      const [left, right] = views;
+      const stereo = right && right.width === left.width && right.height === left.height;
+      if (!stereo) {
+        notice('That HEIC holds one photo, not a spatial pair, so it\'s built like a normal picture.');
+        return useImage(left, left.toDataURL('image/jpeg', 0.85), true);
+      }
+      notice('Spatial photo found: measuring depth. The first time, this downloads a 27 MB AI model…');
+      const depthModel = state.depthModel || (state.depthModel = await state.T.loadDepth());
+      const result = await L.spatialDepth({ left, right, depthModel, onProgress: (m) => notice(m) });
+      notice('Finding the subject…');
+      state.segmenter = state.segmenter || await state.T.loadSegmenter();
+      const subject = L.spatialSubject({ image: result.image, dist: result.dist, segmenter: state.segmenter });
+      const relief = subject
+        ? { dist: subject.dist, mask: subject.mask, f: result.f }
+        : { dist: result.dist, f: result.f };
+      state.source = { kind: 'spatial', img: subject ? subject.image : result.image, relief };
+      el.preview.src = result.image.toDataURL('image/jpeg', 0.85);
+      el.preview.hidden = false;
+      el.modelCard.hidden = true;
+      el.dropzone.classList.add('has-image');
+      notice(result.stereoUsed
+        ? `Spatial photo: depth measured from ${result.stereoUsed.toLocaleString()} matched points between the two views.`
+        : 'Couldn\'t match the two views (too little texture?), so the depth is AI-estimated only.');
+      showSettingsFor('spatial');
+      build(true);
+    } catch (err) {
+      console.error(err);
+      notice(`Couldn't read ${file.name}: ${err.message || err}`, true);
+    }
+  }
+
+  function useImage(img, previewSrc, keepNotice) {
     state.source = { kind: 'image', img };
     el.preview.src = previewSrc;
     el.preview.hidden = false;
     el.modelCard.hidden = true;
     el.dropzone.classList.add('has-image');
-    notice('');
+    if (!keepNotice) notice('');
     showSettingsFor('image');
     build(true);
   }
@@ -140,7 +182,7 @@
 
   function showSettingsFor(kind) {
     // 3D models and scans can go much bigger than pictures (whose thickness grows with width).
-    el.cols.max = kind === 'image' ? 120 : 320;
+    el.cols.max = kind === 'image' || kind === 'spatial' ? 120 : 320;
     if (+el.cols.value > +el.cols.max) el.cols.value = el.cols.max;
     el.colsOut.value = el.cols.value;
     for (const node of document.querySelectorAll('[data-source]')) {
@@ -310,13 +352,14 @@
     const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value };
     try {
       const { kind } = state.source;
-      state.model = kind === 'image'
+      state.model = kind === 'image' || kind === 'spatial'
         ? L.buildSculpture(state.source.img, {
           ...shared,
           cols: +el.cols.value,
           thickness: el.thick.value / 100,
           removeBackground: el.removeBg.checked,
           dither: el.dither.checked,
+          relief: state.source.relief || null,
         })
         : L.bricksFromVolume(kind === 'scan'
           ? state.source.carver.volume({ size: +el.cols.value })

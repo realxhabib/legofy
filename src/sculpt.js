@@ -189,13 +189,13 @@
         y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       }
     }
-    if (x1 < 0) return { grid, cols, rows };
+    if (x1 < 0) return { grid, cols, rows, x0: 0, y0: 0 };
     const w = x1 - x0 + 1, h = y1 - y0 + 1;
     const out = new Int16Array(w * h);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) out[y * w + x] = grid[(y + y0) * cols + x + x0];
     }
-    return { grid: out, cols: w, rows: h };
+    return { grid: out, cols: w, rows: h, x0, y0 };
   }
 
   // Half-thickness (in studs) of the solid at every pixel. Each pixel's distance to the silhouette
@@ -292,9 +292,67 @@
     },
   };
 
+  // Average of a per-pixel map over each grid cell (the image is w×h, the grid cols×rows).
+  function perCell(map, w, h, cols, rows) {
+    const out = new Float32Array(cols * rows);
+    for (let y = 0; y < rows; y++) {
+      const y0 = Math.floor((y * h) / rows), y1 = Math.max(y0 + 1, Math.floor(((y + 1) * h) / rows));
+      for (let x = 0; x < cols; x++) {
+        const x0 = Math.floor((x * w) / cols), x1 = Math.max(x0 + 1, Math.floor(((x + 1) * w) / cols));
+        let sum = 0, n = 0;
+        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { sum += map[yy * w + xx]; n++; }
+        out[y * cols + x] = sum / n;
+      }
+    }
+    return out;
+  }
+
+  // Depth per grid cell from the object's own pixels only, taking a near-side value (30th percentile):
+  // the depth model blurs object edges into the far background, which an average would pick up.
+  function perCellDepth(dist, mask, w, h, cols, rows) {
+    const out = new Float32Array(cols * rows);
+    const vals = [];
+    for (let y = 0; y < rows; y++) {
+      const y0 = Math.floor((y * h) / rows), y1 = Math.max(y0 + 1, Math.floor(((y + 1) * h) / rows));
+      for (let x = 0; x < cols; x++) {
+        const x0 = Math.floor((x * w) / cols), x1 = Math.max(x0 + 1, Math.floor(((x + 1) * w) / cols));
+        vals.length = 0;
+        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) if (!mask || mask[yy * w + xx] >= 0.5) vals.push(dist[yy * w + xx]);
+        if (!vals.length) for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) vals.push(dist[yy * w + xx]);
+        vals.sort((a, b) => a - b);
+        out[y * cols + x] = vals[Math.floor(vals.length * 0.3)];
+      }
+    }
+    return out;
+  }
+
+  // Otsu's threshold: the split of the values into two groups (near / far) with the clearest gap.
+  function otsu(values) {
+    let lo = Infinity, hi = -Infinity;
+    for (const v of values) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const bins = 64, hist = new Float64Array(bins);
+    for (const v of values) hist[Math.min(bins - 1, Math.floor(((v - lo) / (hi - lo || 1)) * bins))]++;
+    const total = values.length;
+    let sum = 0;
+    for (let i = 0; i < bins; i++) sum += i * hist[i];
+    let wB = 0, sumB = 0, best = 0, split = bins / 2;
+    for (let i = 0; i < bins; i++) {
+      wB += hist[i];
+      if (!wB || wB === total) continue;
+      sumB += i * hist[i];
+      const mB = sumB / wB, mF = (sum - sumB) / (total - wB);
+      const between = wB * (total - wB) * (mB - mF) ** 2;
+      if (between > best) { best = between; split = i + 1; }
+    }
+    return lo + (split / bins) * (hi - lo);
+  }
+
+  // relief: { dist, f } from a spatial photo — per-pixel relative distance for `img` and its focal
+  // length in pixels. The front of the sculpture then follows the measured surface instead of being
+  // inflated, and the hidden back is mirrored about the silhouette's depth (a ball stays a ball).
   L.buildSculpture = function (img, {
     cols: width, thickness = 0.5, removeBackground = true, hollow = true, dither = false, onlySingles = false,
-    order = 'sweep',
+    order = 'sweep', relief = null,
   }) {
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
@@ -306,9 +364,28 @@
       lab.push(L.rgbToLab(pixels.data[i * 4], pixels.data[i * 4 + 1], pixels.data[i * 4 + 2]));
     }
     const { mask, bg } = subjectMask(pixels, lab, removeBackground);
+    let cellDist = null;
+    if (relief) {
+      cellDist = perCellDepth(relief.dist, relief.mask, iw, ih, width, fullRows);
+      if (relief.mask) {
+        // The subject was already cut out (segmenter on the photo): use that outline.
+        const cellMask = perCell(relief.mask, iw, ih, width, fullRows);
+        for (let i = 0; i < mask.length; i++) mask[i] = cellMask[i] >= 0.5 ? 1 : 0;
+      } else if (removeBackground) {
+        // Depth separates the subject from what's behind it far better than colour can.
+        const cut = otsu(cellDist);
+        let kept = 0;
+        for (let i = 0; i < mask.length; i++) { if (cellDist[i] > cut) mask[i] = 0; kept += mask[i]; }
+        if (kept < mask.length * 0.02) for (let i = 0; i < mask.length; i++) mask[i] = 1; // gave up: keep all
+      }
+    }
     const colors = quantize(pixels, mask, palette, dither);
     if (!dither) cleanBlends(colors, lab, width, fullRows, palette, bg);
-    const { grid, cols, rows } = crop(colors, width, fullRows);
+    const { grid, cols, rows, x0, y0 } = crop(colors, width, fullRows);
+    if (relief) {
+      return L.bricksFromVolume(reliefVolume(grid, cols, rows, cellDist, width, x0, y0, iw / width, relief.f),
+        { hollow, onlySingles, order });
+    }
     const half = inflate(grid, cols, rows, thickness);
 
     let maxHalf = 0;
@@ -328,6 +405,56 @@
     }
     return L.bricksFromVolume(volume, { hollow, onlySingles, order });
   };
+
+  // Front surface from measured depth, back mirrored about the silhouette's depth.
+  function reliefVolume(grid, cols, rows, cellDist, fullCols, x0, y0, pxPerCell, f) {
+    const at = (x, y) => cellDist[(y + y0) * fullCols + x + x0];
+    const cells = [];
+    for (let i = 0; i < grid.length; i++) if (grid[i] >= 0) cells.push(at(i % cols, Math.floor(i / cols)));
+    cells.sort((a, b) => a - b);
+    // Clamp to the 3rd–97th percentile so a few stray pixels can't stretch the whole sculpture.
+    const nearest = cells[Math.floor(cells.length * 0.03)], farthest = cells[Math.floor(cells.length * 0.97)];
+    const typical = cells[cells.length >> 1];
+    // A stud is pxPerCell pixels wide at the object's distance, so a change in distance Δ (same unit as
+    // the distance) spans f·Δ / (pxPerCell·typical) studs.
+    const front = new Int16Array(grid.length);
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i] < 0) continue;
+      const d = Math.min(farthest, Math.max(nearest, at(i % cols, Math.floor(i / cols))));
+      front[i] = Math.round((f * (d - nearest)) / (pxPerCell * typical));
+    }
+    // The silhouette sits at the object's widest part: its depth is where the back mirrors about.
+    const edge = [];
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const i = y * cols + x;
+        if (grid[i] < 0) continue;
+        const out = (xx, yy) => xx < 0 || yy < 0 || xx >= cols || yy >= rows || grid[yy * cols + xx] < 0;
+        if (out(x - 1, y) || out(x + 1, y) || out(x, y - 1)) edge.push(front[i]);
+      }
+    }
+    edge.sort((a, b) => a - b);
+    const mid = edge.length ? edge[edge.length >> 1] : 0;
+    let deepest = 0;
+    const back = new Int16Array(grid.length);
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i] < 0) continue;
+      back[i] = Math.max(front[i], 2 * mid - front[i]);
+      deepest = Math.max(deepest, back[i]);
+    }
+    const depth = deepest + 1;
+    const voxels = new Int16Array(cols * rows * depth).fill(-1);
+    for (let level = 0; level < rows; level++) {
+      const y = rows - 1 - level;
+      for (let x = 0; x < cols; x++) {
+        const i = y * cols + x;
+        if (grid[i] < 0) continue;
+        // z grows toward the viewer, so the nearest surface gets the largest z.
+        for (let s = front[i]; s <= back[i]; s++) voxels[(level * depth + (depth - 1 - s)) * cols + x] = grid[i];
+      }
+    }
+    return { cols, rows, depth, voxels };
+  }
 
   // Solid color volume -> bricks. voxels[(level * depth + z) * cols + x] is a palette index or -1.
   L.bricksFromVolume = function ({ cols, rows, depth, voxels }, { hollow = true, onlySingles = false, order = 'sweep' }) {

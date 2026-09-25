@@ -27,7 +27,7 @@
         <div class="drop-hint">
           <strong>Drop an image or 3D scan here</strong>
           <span>or click to choose · paste works too</span>
-          <span class="formats">3D: GLB, OBJ (+ .mtl and texture), PLY, STL, USDZ</span>
+          <span class="formats">3D: GLB, OBJ (+ .mtl and texture), PLY, STL, USDZ · iPhone spatial photos (HEIC)</span>
         </div>
       </label>
       <button id="scanBtn" class="scan-btn" type="button">
@@ -61,7 +61,7 @@
       <fieldset id="settings">
         <legend>Sculpture</legend>
         <label class="row">
-          <span><span data-source="image">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
+          <span><span data-source="image spatial">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
             <output id="colsOut">36</output> studs</span>
           <input id="cols" type="range" min="12" max="120" step="4" value="36">
         </label>
@@ -90,9 +90,9 @@
             <option value="random">Layer by layer, random</option>
           </select>
         </label>
-        <label class="check" data-source="image"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
+        <label class="check" data-source="image spatial"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
         <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer bricks)</label>
-        <label class="check" data-source="image"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
+        <label class="check" data-source="image spatial"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
         <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
       </fieldset>
 
@@ -200,6 +200,7 @@
   <script src="src/sculpt.js"></script>
   <script src="src/voxelize.js"></script>
   <script src="src/scan.js"></script>
+  <script src="src/spatial.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
   <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->
@@ -248,7 +249,9 @@
       }
       return pipeline('depth-estimation', model, { dtype: 'q8', device: 'wasm' });
     };
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth });
+    // HEIC decoding (for iPhone spatial photos), fetched the first time one is dropped in.
+    const loadHeif = async () => (await import('https://cdn.jsdelivr.net/npm/libheif-js@1.23.2/libheif-wasm/libheif-bundle.mjs')).default();
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth, loadHeif });
   </script>
 </body>
 </html>

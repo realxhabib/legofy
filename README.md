@@ -75,6 +75,25 @@ Every triangle is sampled densely, each sample takes its color from the texture,
 and each voxel keeps the LEGO color most of its samples agree on. The closed interior is filled, and then
 it's hollowed and tiled into bricks just like an image.
 
+## iPhone spatial photos
+
+Drop a spatial photo (the HEIC an iPhone 15 Pro / 16 takes in Spatial mode; AirDrop or save it to Files
+so it stays HEIC) and the front of the sculpture follows the object's **measured** depth instead of the
+puffed-up guess used for ordinary pictures:
+
+1. Both views (left and right eye) are decoded with libheif (WebAssembly, fetched on first use), since
+   browsers can't read HEIC themselves.
+2. The views are matched block by block; how far each point shifts between them is its disparity,
+   proportional to 1 / distance.
+3. The on-device depth model gives a smooth, dense depth map for the left view, and the stereo matches
+   calibrate it, so depth comes out in the right proportion to the object's width and height.
+4. The object finder picks out the subject (pointed at the middle of the photo, then growing into
+   touching parts at the same distance), and the photo is cropped to it.
+5. The front surface follows the measured depth, and the unseen back is mirrored about the depth of the
+   outline (a ball stays a ball).
+
+A HEIC with a single photo is built like any other picture.
+
 ## At real size
 
 Under the settings, **At real size** takes a real-world height and works out what it would take to build
