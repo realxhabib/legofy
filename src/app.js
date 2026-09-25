@@ -54,9 +54,13 @@
     // The orbit hint has done its job once someone drags the view.
     state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
     state.scanner = new L.Scanner(THREE, {
-      root: $('scanner'), video: $('scanVideo'), overlay: $('scanOverlay'), ring: $('scanRing'),
+      root: $('scanner'), live: $('scanLive'), video: $('scanVideo'), overlay: $('scanOverlay'), ring: $('scanRing'),
       status: $('scanStatus'), preview: $('scanPreview'), cancel: $('scanCancel'), done: $('scanDone'),
+      confirm: $('scanConfirm'), confirmYes: $('confirmYes'), confirmNo: $('confirmNo'),
+      review: $('scanReview'), reviewInfo: $('reviewInfo'), reviewCanvas: $('reviewCanvas'), reviewGrid: $('reviewGrid'),
+      reviewBuild: $('reviewBuild'), reviewMore: $('reviewMore'), reviewCancel: $('reviewCancel'),
     }, useScan);
+    L.scanner = state.scanner; // handy for debugging and automated tests
     if (state.source) build(true);
     requestAnimationFrame(tick);
   };
@@ -134,6 +138,10 @@
   }
 
   function showSettingsFor(kind) {
+    // 3D models and scans can go much bigger than pictures (whose thickness grows with width).
+    el.cols.max = kind === 'image' ? 120 : 320;
+    if (+el.cols.value > +el.cols.max) el.cols.value = el.cols.max;
+    el.colsOut.value = el.cols.value;
     for (const node of document.querySelectorAll('[data-source]')) {
       node.hidden = !node.dataset.source.split(' ').includes(kind);
     }
@@ -260,10 +268,11 @@
   });
   el.sampleStarship.addEventListener('click', () => {
     if (!state.T) return;
-    // Tall and thin: give it enough studs to keep the fins and flaps.
-    el.cols.value = 120;
-    el.colsOut.value = 120;
-    useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 121 });
+    // Tall and thin: build it big enough that the fins, flaps and vents survive as bricks.
+    showSettingsFor('model');
+    el.cols.value = 300;
+    el.colsOut.value = 300;
+    useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 123.1 });
   });
 
   // A rubber duck on a plain background: a good subject to inflate into a sculpture.

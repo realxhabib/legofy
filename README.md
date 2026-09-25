@@ -42,6 +42,10 @@ no app, no marker and no upload: everything runs on the phone.
   hidden under the object is trimmed using the estimated tabletop height.
 - **Colors:** each surface voxel takes the majority LEGO color from the frames that face it most directly,
   using only pixels well inside the cut-out.
+- **You stay in control:** after tapping the object, the scanner highlights what it picked and waits for a
+  yes before capturing anything. After **Done**, a review screen shows the colored 3D result and every
+  capture. The eye button on each capture leaves it out (or brings it back) and the model recarves
+  instantly, so you can compare. Captures that disagree with the rest are flagged ⚠.
 
 Limits: the object needs to stand out from its background. Hollows and dents (the inside of a bowl)
 fill in. Needs https (Vercel is fine) and camera plus motion permission. iOS asks for motion access
@@ -63,7 +67,10 @@ Under the settings, **At real size** takes a real-world height and works out wha
 the thing full size: brick count, dimensions, weight, cost and build time. For heights up to twice
 the model it scales this build directly. Beyond that it assumes a sturdy hollow shell 2 studs thick made of
 2×4 bricks, so the count grows with surface area (or with volume when **Hollow** is off). The
-**life-size Starship** sample (the full ~121 m stack) comes out around 11 million bricks.
+**life-size Starship** sample comes out around 11 million bricks. The sample is a detailed model of the full
+Block 2 stack (~123 m, 9 m across, from public figures): steel Super Heavy with raceway, four lattice grid
+fins and catch fittings, the vented hot-staging ring, and Ship with windward heat-shield tiles, a tiled nose
+tip, tapered aft and forward flaps and the payload door. It builds 300 studs tall so the details survive.
 
 ## How it works
 

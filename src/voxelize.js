@@ -259,51 +259,112 @@
   };
 })(window.Legofy = window.Legofy || {});
 
-// A full Starship stack (Super Heavy booster + Ship), in meters: ~121 m tall, 9 m across.
-// Stainless steel with the black heat-shield tiles on one side, grid fins and flaps.
+// Starship, full stack (Block 2 proportions from public figures): Super Heavy booster, vented
+// hot-staging ring and Ship, ~123 m tall and 9 m across. Units are meters; +x is the windward side
+// (the black heat-shield tiles), the flaps sit where tiles meet steel, raceways run down the lee side.
 (function (L) {
   L.starshipModel = function (T) {
     const group = new T.Group();
     const R = 4.5;
-    const steel = new T.MeshStandardMaterial({ color: '#b9bec4' });
-    const darkSteel = new T.MeshStandardMaterial({ color: '#8d9196' });
-    const tiles = new T.MeshStandardMaterial({ color: '#1f2124' });
-    const hardware = new T.MeshStandardMaterial({ color: '#55595e' });
-    const add = (geometry, material, x, y, z, rotY = 0) => {
+    const mat = (color) => new T.MeshStandardMaterial({ color });
+    const steel = mat('#bcc1c6');
+    const skirt = mat('#6c6e68');
+    const tiles = mat('#1c1e21');
+    const vent = mat('#141517');
+    const fin = mat('#55595e');
+    const conduit = mat('#9aa0a6');
+    const place = (geometry, material, x, y, z, rotY = 0) => {
       const m = new T.Mesh(geometry, material);
       m.position.set(x, y, z);
       m.rotation.y = rotY;
       group.add(m);
       return m;
     };
+    // A box hugging the hull at azimuth a (0 = +x), centred at height y.
+    const onHull = (w, h, d, material, a, y, out = 0) => {
+      const r = R + d / 2 + out;
+      return place(new T.BoxGeometry(d, h, w), material, Math.cos(a) * r, y, -Math.sin(a) * r, a);
+    };
+    // A flap: a tapered plate (root chord along the hull, shorter tip), sticking out at azimuth a.
+    const flap = (span, root, tip, thick, a, y0, radius) => {
+      const shape = new T.Shape();
+      shape.moveTo(0, 0);
+      shape.lineTo(span, (root - tip) * 0.35);
+      shape.lineTo(span, (root - tip) * 0.35 + tip);
+      shape.lineTo(0, root);
+      shape.closePath();
+      const g = new T.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+      g.translate(0, 0, -thick / 2);
+      const m = new T.Mesh(g, tiles);
+      m.position.set(Math.cos(a) * (radius - 0.3), y0, -Math.sin(a) * (radius - 0.3));
+      m.rotation.y = a;
+      group.add(m);
+    };
 
-    // Super Heavy: engine skirt, booster tank section, grid fins, hot-staging ring.
-    add(new T.CylinderGeometry(R, R, 4, 48), darkSteel, 0, 2, 0);
-    add(new T.CylinderGeometry(R, R, 67, 48), steel, 0, 4 + 33.5, 0);
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
-      add(new T.BoxGeometry(4, 3.5, 0.8), hardware, Math.cos(a) * (R + 2), 67, Math.sin(a) * (R + 2), -a);
+    // ---- Super Heavy booster (0 – 69.2 m) ----
+    const boosterTop = 69.2;
+    place(new T.CylinderGeometry(R, R, 1.2, 64), skirt, 0, 0.6, 0);                  // sooty base of the engine skirt
+    place(new T.CylinderGeometry(R, R, boosterTop - 1.2, 64), steel, 0, 1.2 + (boosterTop - 1.2) / 2, 0);
+    onHull(0.7, boosterTop - 8, 0.4, conduit, Math.PI, 4.6 + (boosterTop - 8) / 2 + 1);   // raceway, lee side
+    // Four lattice grid fins near the top: horizontal waffles sticking straight out.
+    const finY = 64.2, finOut = 3.4, finWide = 4.4, finDeep = 1.1, bar = 0.28;
+    for (const deg of [45, 135, 225, 315]) {
+      const a = (deg * Math.PI) / 180;
+      const holder = new T.Group();
+      holder.position.set(0, finY, 0);
+      holder.rotation.y = a;
+      const add = (w, d, x, z) => {
+        const m = new T.Mesh(new T.BoxGeometry(w, finDeep, d), fin);
+        m.position.set(x, 0, z);
+        holder.add(m);
+      };
+      const x0 = R + 0.2, x1 = R + 0.2 + finOut;
+      add(finOut, bar, (x0 + x1) / 2, -finWide / 2);                 // frame
+      add(finOut, bar, (x0 + x1) / 2, finWide / 2);
+      add(bar, finWide, x1, 0);
+      add(bar, finWide, x0, 0);
+      for (let k = 1; k < 4; k++) add(finOut, bar * 0.8, (x0 + x1) / 2, -finWide / 2 + (k * finWide) / 4); // lattice
+      for (let k = 1; k < 3; k++) add(bar * 0.8, finWide, x0 + (k * finOut) / 3, 0);
+      // actuator housing between fin and hull
+      const box = new T.Mesh(new T.BoxGeometry(0.8, 1.6, 1.6), skirt);
+      box.position.set(R + 0.3, 0.2, 0);
+      holder.add(box);
+      group.add(holder);
     }
-    add(new T.CylinderGeometry(R, R, 1.8, 48), hardware, 0, 71.9, 0);
+    // Catch fittings the tower's arms lift the booster by, under two of the fins.
+    for (const deg of [45, 315]) onHull(0.9, 0.8, 0.9, fin, (deg * Math.PI) / 180, finY - 2.2);
 
-    // Ship: steel barrel with the heat shield wrapped around the +x half, then the nose.
-    const shipBase = 72.8, barrel = 32, nose = 121 - shipBase - barrel;
-    add(new T.CylinderGeometry(R, R, barrel, 48), steel, 0, shipBase + barrel / 2, 0);
-    const shield = new T.CylinderGeometry(R + 0.12, R + 0.12, barrel, 48, 1, true, 0, Math.PI);
-    add(shield, tiles, 0, shipBase + barrel / 2, 0);
-    const profile = [];
-    for (let i = 0; i <= 24; i++) {
-      const t = i / 24;
-      profile.push(new T.Vector2(R * Math.pow(1 - Math.pow(t, 1.8), 0.55), t * nose));
+    // ---- Hot-staging ring (69.2 – 71 m): steel band with dark vent openings all round ----
+    const ringY = boosterTop + 0.9;
+    place(new T.CylinderGeometry(R, R, 1.8, 64), steel, 0, ringY, 0);
+    for (let k = 0; k < 20; k++) onHull(0.8, 1.25, 0.15, vent, (k / 20) * Math.PI * 2, ringY);
+
+    // ---- Ship (71 – 123.1 m) ----
+    const shipBase = 71, barrel = 33.1, noseLen = 123.1 - shipBase - barrel;
+    const noseBase = shipBase + barrel;
+    place(new T.CylinderGeometry(R, R, barrel, 64), steel, 0, shipBase + barrel / 2, 0);
+    // Heat shield: tiles over the windward (+x) half, from just above the aft skirt up to the nose.
+    // (Cylinder and lathe both sweep from +z through +x to -z for angles 0..π.)
+    place(new T.CylinderGeometry(R + 0.1, R + 0.1, barrel - 1, 64, 1, true, 0, Math.PI),
+      tiles, 0, shipBase + 1 + (barrel - 1) / 2, 0);
+    onHull(0.6, barrel - 6, 0.35, conduit, Math.PI, shipBase + 3 + (barrel - 6) / 2);    // raceway
+    onHull(3.6, 1.1, 0.12, vent, Math.PI * 0.72, shipBase + barrel - 7);               // payload door
+    // Ogive nose; tiles wrap its windward half and the whole tip.
+    const nose = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32;
+      nose.push(new T.Vector2(R * Math.sqrt(Math.max(0, 1 - Math.pow(t, 2.1))) * (1 - 0.12 * t * t), t * noseLen));
     }
-    const noseTop = shipBase + barrel;
-    add(new T.LatheGeometry(profile, 48), steel, 0, noseTop, 0);
-    add(new T.LatheGeometry(profile.map((p) => new T.Vector2(p.x + 0.12, p.y)), 48, 0, Math.PI), tiles, 0, noseTop, 0);
-
-    // Flaps sit where the tiles meet the steel (the ±z edges): big aft pair, smaller forward pair.
-    for (const side of [-1, 1]) {
-      add(new T.BoxGeometry(0.6, 11, 4.5), tiles, 0.8, shipBase + 8, side * (R + 2.2));
-      add(new T.BoxGeometry(0.6, 7, 3.2), tiles, 0.8, noseTop + 3.5, side * (R + 1.2));
+    place(new T.LatheGeometry(nose, 64), steel, 0, noseBase, 0);
+    const shieldNose = nose.map((p) => new T.Vector2(p.x + 0.1, p.y));
+    place(new T.LatheGeometry(shieldNose, 64, 0, Math.PI), tiles, 0, noseBase, 0);
+    const tipStart = Math.floor(nose.length * 0.8);
+    place(new T.LatheGeometry(shieldNose.slice(tipStart), 64), tiles, 0, noseBase, 0);
+    // Flaps at the tile/steel boundary (±z): big aft pair low on the ship, smaller forward pair on the nose.
+    for (const side of [1, -1]) {
+      const a = (side * Math.PI) / 2;
+      flap(4.6, 12.5, 7.5, 0.6, a, shipBase + 1.5, R);
+      flap(3.2, 8.5, 4.5, 0.5, a + side * -0.25, noseBase + 2.5, R * 0.92);
     }
     return group;
   };

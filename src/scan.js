@@ -78,7 +78,8 @@
 
   class Carver {
     constructor() {
-      this.views = [];
+      this.all = [];   // every accepted capture, in order
+      this.views = []; // the ones currently used (the user can switch any off during review)
     }
 
     get count() { return this.views.length; }
@@ -97,7 +98,7 @@
 
     // image: ImageData; mask: per-pixel object confidence (0..1), same size as the image;
     // rotation: 3×3 row-major camera→world (camera looks down its -Z, image up is +Y, world +Y is up).
-    // Returns the silhouette stats, or null when the view was rejected.
+    // Returns the new view (with its silhouette .stats), or null when it was rejected.
     addView({ image, mask, rotation }) {
       const { width: w, height: h } = image;
       const stats = maskStats(mask, w, h);
@@ -111,7 +112,7 @@
       const f = Math.max(w, h) / 2 / Math.tan(FOV_LONG / 2);
       const R = Float64Array.from(rotation);
 
-      if (!this.views.length) {
+      if (!this.all.length) {
         // Units: the object is about 2 tall. The camera keeps this distance for the whole scan
         // (the guide frame on screen asks the user to keep the object the same size).
         const halfH = (stats.maxY - stats.minY + 1) / 2 / f;
@@ -132,9 +133,32 @@
       // be visible (e.g. only the lid of a jar) would wrongly carve that part away, so skip it.
       if (this.yawBins().size >= 12 && this.coverageOf(view) < 0.75) return null;
       view.core = core(mask, w, h, grow + 1);
+      view.enabled = true;
+      view.index = this.all.length;
+      this.all.push(view);
       this.views.push(view);
-      this.carve(view);
-      return stats;
+      this.carve(view, 1);
+      return view;
+    }
+
+    // Leave a capture out (or put it back). Its carving votes are simply taken back.
+    setEnabled(view, on) {
+      if (view.enabled === on) return;
+      view.enabled = on;
+      this.carve(view, on ? 1 : -1);
+      this.views = this.all.filter((v) => v.enabled);
+    }
+
+    // How well a capture agrees with the shape built from the captures in use: `missing` is the share
+    // of the shape its cut-out leaves out, `extra` the share of its cut-out that isn't the shape.
+    agreement(view) {
+      const predicted = this.predictedSilhouette(view);
+      let shape = 0, covered = 0, cut = 0, extra = 0;
+      for (let k = 0; k < predicted.length; k++) {
+        if (predicted[k]) { shape++; covered += view.bin[k]; }
+        if (view.core[k]) { cut++; if (!predicted[k]) extra++; }
+      }
+      return { missing: shape ? 1 - covered / shape : 0, extra: cut ? extra / cut : 0 };
     }
 
     // Which of 24 directions around the object have been captured.
@@ -236,13 +260,13 @@
       return u < 0 || v < 0 || u >= w || v >= h ? -1 : v * w + u;
     }
 
-    carve(view) {
+    carve(view, sign) {
       const p = [0, 0, 0];
       for (let i = 0; i < G * G * G; i++) {
         const k = this.project(view, this.center(i, p));
         if (k < 0) continue;
-        this.seen[i]++;
-        if (!view.bin[k]) this.outside[i]++;
+        this.seen[i] += sign;
+        if (!view.bin[k]) this.outside[i] += sign;
       }
     }
 
@@ -468,13 +492,17 @@
       ui.cancel.addEventListener('click', () => this.close());
       ui.done.addEventListener('click', () => this.finish());
       ui.overlay.addEventListener('pointerdown', (e) => this.tap(e));
+      ui.confirmYes.addEventListener('click', () => this.confirm(true));
+      ui.confirmNo.addEventListener('click', () => this.confirm(false));
+      ui.reviewBuild.addEventListener('click', () => this.build());
+      ui.reviewMore.addEventListener('click', () => this.scanMore());
+      ui.reviewCancel.addEventListener('click', () => this.close());
     }
 
     status(msg) { this.ui.status.textContent = msg; }
 
     // Must be called from a tap/click: iOS only grants motion sensors inside a user gesture.
     async open() {
-      const { ui } = this;
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('This browser can\'t use the camera. Open the page over https in Safari or Chrome on your phone.');
       }
@@ -484,12 +512,23 @@
       }
       this.carver = new Carver();
       this.keypoint = null;
+      this.pending = null;
+      this.guide = null;
+      this.phase = 'select';
+      await this.startCamera();
+      this.status('Tap the object you want to build.');
+    }
+
+    // Camera, sensors and the capture loop. Also used to resume after reviewing.
+    async startCamera() {
+      const { ui } = this;
       this.busy = false;
       this.rotation = null;
       this.lastMaskAt = 0;
       window.addEventListener('deviceorientation', this.onOrientation);
-
       ui.root.hidden = false;
+      ui.review.hidden = true;
+      ui.live.hidden = false;
       document.body.classList.add('scanning');
       this.status('Starting the camera…');
       this.stream = await navigator.mediaDevices.getUserMedia({
@@ -509,26 +548,75 @@
           throw new Error('No motion sensor data. Walk-around scanning needs a phone, so open this page on one.');
         }
       }
-      this.status('Tap the object you want to build.');
       this.running = true;
       this.updateUi();
       requestAnimationFrame((t) => this.loop(t));
     }
 
-    close() {
+    stopCamera() {
       this.running = false;
       window.removeEventListener('deviceorientation', this.onOrientation);
       if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
+    }
+
+    close() {
+      this.stopCamera();
+      this.reviewing = false;
       this.ui.root.hidden = true;
+      this.ui.confirm.hidden = true;
       document.body.classList.remove('scanning');
     }
 
+    // The first cut-out is shown to the user; scanning only starts once they say it's the whole object.
+    confirm(yes) {
+      const { pending } = this;
+      this.pending = null;
+      this.ui.confirm.hidden = true;
+      this.lastMaskAt = 0;
+      if (!yes || !pending) {
+        this.phase = 'select';
+        this.status('Tap the object you want to build. Tap its middle so the whole thing lights up.');
+        return;
+      }
+      const view = this.carver.addView(pending);
+      if (!view) {
+        this.phase = 'select';
+        this.status('That cut-out can\'t be used (it runs off the screen or is tiny). Step back and tap again.');
+        return;
+      }
+      this.accepted(view);
+      this.guide = { ...view.stats, w: view.w, h: view.h };
+      this.phase = 'scanning';
+      this.updateUi();
+    }
+
+    // Walking is over: show the reconstruction and every capture so the user can prune bad ones.
     finish() {
       if (!this.carver || this.carver.count < 4) return;
+      this.stopCamera();
+      this.ui.live.hidden = true;
+      this.ui.review.hidden = false;
+      this.reviewing = true;
+      this.renderReviewGrid();
+      this.refreshReview();
+      requestAnimationFrame(() => this.reviewLoop());
+    }
+
+    build() {
       const carver = this.carver;
       this.close();
       this.onDone(carver);
+    }
+
+    async scanMore() {
+      this.reviewing = false;
+      this.phase = 'scanning';
+      try {
+        await this.startCamera();
+      } catch (err) {
+        this.status(err.message);
+      }
     }
 
     // Where the video actually sits inside the overlay (object-fit: cover, so it may overflow).
@@ -541,7 +629,7 @@
     }
 
     tap(e) {
-      if (!this.running) return;
+      if (!this.running || this.phase === 'scanning') return;
       const r = this.videoRect();
       const box = this.ui.overlay.getBoundingClientRect();
       const x = (e.clientX - box.left - r.x) / r.w, y = (e.clientY - box.top - r.y) / r.h;
@@ -569,13 +657,44 @@
       const mask = conf ? Float32Array.from(conf.getAsFloat32Array()) : null;
       result.close();
       if (!mask || mask.length !== image.width * image.height) return null;
-      const stats = this.carver.addView({ image, mask, rotation });
-      if (stats) {
-        this.keypoint = { x: (stats.cx + 0.5) / image.width, y: (stats.cy + 0.5) / image.height };
+      if (this.phase !== 'scanning') {
+        // Picking the object: hold the cut-out for the user to confirm.
+        const { width: w, height: h } = image;
+        const stats = maskStats(mask, w, h);
+        if (!stats.area || stats.area < w * h * 0.005) return null;
+        if (stats.area > w * h * 0.8 || stats.edge > (w + h) * 0.04) {
+          this.status('That selection runs off the screen. Step back so the whole object fits, then tap it.');
+          return stats;
+        }
+        this.pending = { image, mask, rotation, stats };
         this.drawMask(mask, image.width, image.height);
-        if (this.carver.count === 1) this.guide = { ...stats, w: image.width, h: image.height };
+        this.lastMaskAt = Infinity; // keep it on screen until they answer
+        this.phase = 'confirm';
+        this.ui.confirm.hidden = false;
+        this.status('Is the highlighted area the whole object?');
+        return stats;
       }
-      return stats;
+      const view = this.carver.addView({ image, mask, rotation });
+      if (!view) return null;
+      this.accepted(view);
+      this.drawMask(mask, image.width, image.height);
+      return view.stats;
+    }
+
+    // Bookkeeping for a new capture: follow the object, and keep a thumbnail for the review.
+    accepted(view) {
+      const { stats, w, h } = view;
+      this.keypoint = { x: (stats.cx + 0.5) / w, y: (stats.cy + 0.5) / h };
+      const thumb = document.createElement('canvas');
+      thumb.width = w; thumb.height = h;
+      const g = thumb.getContext('2d');
+      const img = new ImageData(new Uint8ClampedArray(view.image.data), w, h);
+      for (let i = 0; i < w * h; i++) {
+        if (view.core[i]) continue; // dim everything that isn't the object
+        img.data[i * 4] *= 0.35; img.data[i * 4 + 1] *= 0.35; img.data[i * 4 + 2] *= 0.35;
+      }
+      g.putImageData(img, 0, 0);
+      view.thumb = thumb;
     }
 
     loop() {
@@ -583,7 +702,8 @@
       requestAnimationFrame((t) => this.loop(t));
       const ready = this.keypoint && this.rotation && !this.busy;
       const steady = (this.turnRate || 0) < 1.2; // rad/s: skip blurry frames while turning fast
-      if (ready && (this.forceCapture || (steady && this.carver.count && this.carver.isNewDirection(this.rotation)))) {
+      const walking = this.phase === 'scanning' && steady && this.carver.isNewDirection(this.rotation);
+      if (ready && (this.forceCapture || walking)) {
         this.busy = true;
         const forced = this.forceCapture;
         this.forceCapture = false;
@@ -641,7 +761,7 @@
       g.clearRect(0, 0, W, H);
       const r = this.videoRect();
       // The latest captured silhouette fades out over a second.
-      const age = (performance.now() - this.lastMaskAt) / 1000;
+      const age = this.lastMaskAt === Infinity ? 0 : (performance.now() - this.lastMaskAt) / 1000;
       if (this.maskCanvas.width && age < 1.2) {
         g.globalAlpha = Math.max(0, 1 - age / 1.2);
         g.drawImage(this.maskCanvas, r.x, r.y, r.w, r.h);
@@ -706,6 +826,128 @@
     }
   }
 
+  // ---------- review ----------
+
+  Object.assign(Scanner.prototype, {
+    renderReviewGrid() {
+      const grid = this.ui.reviewGrid;
+      grid.textContent = '';
+      this.reviewItems = this.carver.all.map((view) => {
+        const item = document.createElement('div');
+        item.className = 'capture';
+        view.thumb.className = 'capture-img';
+        const eye = document.createElement('button');
+        eye.type = 'button';
+        eye.className = 'eye';
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = '⚠';
+        badge.title = 'This capture doesn\'t match the others. Try hiding it.';
+        const num = document.createElement('span');
+        num.className = 'num';
+        num.textContent = view.index + 1;
+        item.append(view.thumb, eye, badge, num);
+        const toggle = () => {
+          if (view.enabled && this.carver.count <= 4) return; // keep enough to carve with
+          this.carver.setEnabled(view, !view.enabled);
+          this.refreshReview();
+        };
+        eye.addEventListener('click', toggle);
+        view.thumb.addEventListener('click', toggle);
+        return { view, item, eye, badge };
+      });
+      grid.append(...this.reviewItems.map((r) => r.item));
+    },
+
+    refreshReview() {
+      const { carver, ui } = this;
+      for (const { view, item, eye, badge } of this.reviewItems) {
+        item.classList.toggle('off', !view.enabled);
+        eye.innerHTML = view.enabled ? EYE : EYE_OFF;
+        eye.setAttribute('aria-label', `${view.enabled ? 'Hide' : 'Show'} capture ${view.index + 1}`);
+        const { missing, extra } = carver.agreement(view);
+        badge.hidden = !(missing > 0.2 || extra > 0.35);
+      }
+      ui.reviewInfo.textContent = `Using ${carver.count} of ${carver.all.length} captures. ` +
+        'Tap the eye on a capture to leave it out and see if the shape gets better.';
+      this.renderReview3d();
+    },
+
+    // The shape as it would be built: a coloured voxel model you can spin around.
+    renderReview3d() {
+      const T = this.T;
+      if (!this.r3d) {
+        const renderer = new T.WebGLRenderer({ canvas: this.ui.reviewCanvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+        const scene = new T.Scene();
+        scene.add(new T.HemisphereLight(0xffffff, 0x445066, 2));
+        const sun = new T.DirectionalLight(0xffffff, 1.6);
+        sun.position.set(-1, 2, 1.5);
+        scene.add(sun);
+        const camera = new T.PerspectiveCamera(35, 1, 0.1, 1000);
+        const controls = new T.OrbitControls(camera, this.ui.reviewCanvas);
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.5;
+        controls.enableDamping = true;
+        controls.addEventListener('start', () => { controls.autoRotate = false; });
+        this.r3d = { renderer, scene, camera, controls, mesh: null };
+      }
+      const { scene, camera, controls } = this.r3d;
+      const vol = this.carver.volume({ size: 40 });
+      const { cols, rows, depth, voxels } = vol;
+      const filled = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < cols && y < rows && z < depth &&
+        voxels[(y * depth + z) * cols + x] >= 0;
+      const cells = [];
+      for (let y = 0; y < rows; y++) {
+        for (let z = 0; z < depth; z++) {
+          for (let x = 0; x < cols; x++) {
+            const c = voxels[(y * depth + z) * cols + x];
+            if (c < 0) continue;
+            if (filled(x + 1, y, z) && filled(x - 1, y, z) && filled(x, y + 1, z) && filled(x, y - 1, z) &&
+              filled(x, y, z + 1) && filled(x, y, z - 1)) continue;
+            cells.push([x, y, z, c]);
+          }
+        }
+      }
+      if (this.r3d.mesh) { scene.remove(this.r3d.mesh); this.r3d.mesh.geometry.dispose(); }
+      const mesh = new T.InstancedMesh(new T.BoxGeometry(0.96, L.BRICK_HEIGHT * 0.96, 0.96),
+        new T.MeshStandardMaterial({ roughness: 0.4 }), Math.max(1, cells.length));
+      const m = new T.Matrix4(), color = new T.Color();
+      cells.forEach(([x, y, z, c], i) => {
+        m.makeTranslation(x - cols / 2, (y + 0.5) * L.BRICK_HEIGHT, z - depth / 2);
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, color.set(L.PALETTE[c].css));
+      });
+      scene.add(mesh);
+      this.r3d.mesh = mesh;
+      const h = rows * L.BRICK_HEIGHT, span = Math.max(h, cols, depth);
+      if (!this.r3d.framed) {
+        controls.target.set(0, h / 2, 0);
+        camera.position.set(span * 0.9, h / 2 + span * 0.5, span * 1.6);
+        this.r3d.framed = true;
+      }
+    },
+
+    reviewLoop() {
+      if (!this.reviewing) { if (this.r3d) this.r3d.framed = false; return; }
+      requestAnimationFrame(() => this.reviewLoop());
+      const { renderer, scene, camera, controls } = this.r3d;
+      const c = this.ui.reviewCanvas;
+      const w = c.clientWidth, h = c.clientHeight;
+      if (c.width !== Math.round(w * renderer.getPixelRatio())) {
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      controls.update(1 / 60);
+      renderer.render(scene, camera);
+    },
+  });
+
+  const EYE = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M2 12s3.6-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.6 7-10 7c-2 0-3.8-.7-5.2-1.6M3 3l18 18"/></svg>';
+
+  L.maskStats = maskStats;
   L.Carver = Carver;
   L.Scanner = Scanner;
   L.cameraRotation = cameraRotation;

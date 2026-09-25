@@ -145,17 +145,37 @@
   </main>
 
   <div id="scanner" class="scanner" hidden>
-    <video id="scanVideo" playsinline muted></video>
-    <canvas id="scanOverlay" class="scan-overlay"></canvas>
-    <div class="scan-top">
-      <canvas id="scanRing" width="112" height="112"></canvas>
-      <p id="scanStatus">Starting…</p>
+    <div id="scanLive">
+      <video id="scanVideo" playsinline muted></video>
+      <canvas id="scanOverlay" class="scan-overlay"></canvas>
+      <div class="scan-top">
+        <canvas id="scanRing" width="112" height="112"></canvas>
+        <p id="scanStatus">Starting…</p>
+      </div>
+      <div id="scanConfirm" class="scan-confirm" hidden>
+        <button id="confirmNo" type="button">No, tap again</button>
+        <button id="confirmYes" type="button" class="primary">Yes, start scanning</button>
+      </div>
+      <div class="scan-bottom">
+        <canvas id="scanPreview" width="240" height="240" title="Shape so far"></canvas>
+        <div class="scan-buttons">
+          <button id="scanCancel" type="button">Cancel</button>
+          <button id="scanDone" type="button" class="primary" disabled>Done</button>
+        </div>
+      </div>
     </div>
-    <div class="scan-bottom">
-      <canvas id="scanPreview" width="240" height="240" title="Shape so far"></canvas>
-      <div class="scan-buttons">
-        <button id="scanCancel" type="button">Cancel</button>
-        <button id="scanDone" type="button" class="primary" disabled>Done</button>
+
+    <div id="scanReview" class="scan-review" hidden>
+      <div class="review-head">
+        <h2>Your scan</h2>
+        <p id="reviewInfo"></p>
+      </div>
+      <canvas id="reviewCanvas" class="review-3d" title="Drag to spin"></canvas>
+      <div id="reviewGrid" class="review-grid"></div>
+      <div class="scan-buttons review-buttons">
+        <button id="reviewCancel" type="button">Discard</button>
+        <button id="reviewMore" type="button">Scan more</button>
+        <button id="reviewBuild" type="button" class="primary">Build it</button>
       </div>
     </div>
   </div>
