@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Legofy — build any image in bricks</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="logo" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <h1>Legofy</h1>
+    <p class="tagline">Drop in an image and watch it get built, one brick at a time.</p>
+  </header>
+
+  <main>
+    <aside class="panel">
+      <label id="dropzone" class="dropzone" tabindex="0">
+        <input id="file" type="file" accept="image/*" hidden>
+        <img id="preview" alt="" hidden>
+        <div class="drop-hint">
+          <strong>Drop an image here</strong>
+          <span>or click to choose · paste works too</span>
+        </div>
+      </label>
+      <button id="sample" class="link-btn" type="button">No image handy? Try a sample</button>
+
+      <fieldset id="settings">
+        <legend>Mosaic</legend>
+        <label class="row">
+          <span>Width <output id="colsOut">48</output> studs</span>
+          <input id="cols" type="range" min="16" max="128" step="4" value="48">
+        </label>
+        <label class="row">
+          <span>Build order</span>
+          <select id="order">
+            <option value="bottom-up">Bottom to top</option>
+            <option value="top-down">Top to bottom</option>
+            <option value="by-color">One color at a time</option>
+            <option value="center-out">Center outward</option>
+            <option value="random">Random</option>
+          </select>
+        </label>
+        <label class="check"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
+        <label class="check"><input id="singles" type="checkbox"> 1 × 1 plates only</label>
+      </fieldset>
+
+      <section class="parts">
+        <h2>Parts <small id="partsSummary"></small></h2>
+        <ol id="parts"></ol>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div id="canvasWrap" class="canvas-wrap">
+        <div id="empty" class="empty">
+          <div class="empty-bricks" aria-hidden="true"><i></i><i></i><i></i></div>
+          <p>Your build will appear here.</p>
+        </div>
+        <canvas id="canvas" hidden></canvas>
+      </div>
+
+      <div id="controls" class="controls" hidden>
+        <div class="now">
+          <span id="swatch" class="swatch"></span>
+          <span id="caption">Ready</span>
+          <span id="counter" class="counter"></span>
+        </div>
+        <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Build progress">
+        <div class="buttons">
+          <button id="restart" title="Restart (Home)">⏮</button>
+          <button id="back" title="Previous brick (←)">◀</button>
+          <button id="play" class="primary" title="Play / pause (Space)">▶ Build</button>
+          <button id="step" title="Next brick (→)">▶</button>
+          <button id="finish" title="Finish (End)">⏭</button>
+          <label class="speed">Speed
+            <input id="speed" type="range" min="0" max="100" value="45">
+            <output id="speedOut"></output>
+          </label>
+          <span class="spacer"></span>
+          <button id="savePng" title="Download the finished mosaic">PNG</button>
+          <button id="saveCsv" title="Download the parts list">Parts CSV</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="dropOverlay" class="drop-overlay" hidden>Drop to build</div>
+
+  <script src="src/palette.js"></script>
+  <script src="src/mosaic.js"></script>
+  <script src="src/renderer.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
