@@ -155,6 +155,7 @@ body.scanning { overflow: hidden; }
   width: 100%; height: min(45vh, 420px); flex: none; border-radius: 14px;
   background: radial-gradient(circle at 50% 40%, #2d323a, #111316); touch-action: none;
 }
+.review-toggle { display: flex; gap: 8px; align-items: center; font-size: 14px; color: #d6d9dd; }
 .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
 .capture { position: relative; border-radius: 10px; overflow: hidden; background: #000; }
 .capture-img { display: block; width: 100%; height: auto; cursor: pointer; }

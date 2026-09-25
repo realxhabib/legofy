@@ -59,6 +59,7 @@
       confirm: $('scanConfirm'), confirmYes: $('confirmYes'), confirmNo: $('confirmNo'),
       review: $('scanReview'), reviewInfo: $('reviewInfo'), reviewCanvas: $('reviewCanvas'), reviewGrid: $('reviewGrid'),
       reviewBuild: $('reviewBuild'), reviewMore: $('reviewMore'), reviewCancel: $('reviewCancel'),
+      openings: $('reviewOpenings'),
     }, useScan);
     L.scanner = state.scanner; // handy for debugging and automated tests
     if (state.source) build(true);

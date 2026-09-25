@@ -50,6 +50,8 @@
           <li>Walk slowly all the way around it, keeping the whole object in view. Then do a second, lower
             lap from the side (crouch for things on the floor): views from above can't see how tall it is.</li>
           <li>Keep the object filling a good part of the screen, and move slowly so frames aren't blurry.</li>
+          <li>Has an opening (a shoe, a cup)? Include a few shots looking down into it, so the on-device depth
+            model can see how deep it goes.</li>
           <li>Tap <b>Done</b>, check the 3D preview, and hide any ⚠ captures that make it worse.
             Everything happens on your phone, and nothing is uploaded.</li>
         </ol>
@@ -173,6 +175,8 @@
         <p id="reviewInfo"></p>
       </div>
       <canvas id="reviewCanvas" class="review-3d" title="Drag to spin"></canvas>
+      <label class="review-toggle"><input id="reviewOpenings" type="checkbox" checked>
+        Dig out openings (inside of a shoe, a cup…) with on-device AI depth</label>
       <div id="reviewGrid" class="review-grid"></div>
       <div class="scan-buttons review-buttons">
         <button id="reviewCancel" type="button">Discard</button>
@@ -232,7 +236,19 @@
       });
       try { return await create('GPU'); } catch (err) { return create('CPU'); }
     };
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter });
+    // On-device depth estimation (Depth Anything V2 small, ~27 MB) for finding openings in scans.
+    const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
+    const loadDepth = async () => {
+      const { pipeline } = await import(TRANSFORMERS);
+      const model = 'onnx-community/depth-anything-v2-small';
+      // Use the GPU when there really is one (a failed WebGPU start can break the fallback).
+      const adapter = navigator.gpu && await navigator.gpu.requestAdapter().catch(() => null);
+      if (adapter) {
+        try { return await pipeline('depth-estimation', model, { dtype: 'q8', device: 'webgpu' }); } catch (err) { /* fall back */ }
+      }
+      return pipeline('depth-estimation', model, { dtype: 'q8', device: 'wasm' });
+    };
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth });
   </script>
 </body>
 </html>

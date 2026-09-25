@@ -405,10 +405,104 @@
       const floor = this.floorHeight();
       const solid = new Uint8Array(G * G * G);
       const p = [0, 0, 0];
+      const dug = this.useOpenings && this.dug;
       for (let i = 0; i < solid.length; i++) {
-        if (this.solidAt(i) && this.center(i, p)[1] >= floor) solid[i] = 1;
+        if (this.solidAt(i) && !(dug && dug[i]) && this.center(i, p)[1] >= floor) solid[i] = 1;
       }
       return solid;
+    }
+
+    // ---------- openings from AI depth ----------
+    // Outlines alone can never open up a hollow (the inside of a shoe or a mug): no view sees through
+    // it. A depth estimate can: looking into the shoe, the inside is further away than the carved
+    // "lid" over it. The model's depth is relative (unknown scale and offset), so each view's depth is
+    // calibrated against the carved shape itself, ignoring the pixels that disagree most (the openings).
+
+    setDepth(view, raw) { view.depth = raw; }
+
+    // Recompute which voxels the depth views see straight through.
+    applyDepth() {
+      const withDepth = this.views.filter((v) => v.depth);
+      if (!withDepth.length) { this.dug = null; return 0; }
+      const floor = this.floorHeight();
+      const p = [0, 0, 0];
+      const solids = [];
+      for (let i = 0; i < this.outside.length; i++) if (this.solidAt(i) && this.center(i, p)[1] >= floor) solids.push(i);
+      let reach = 0;
+      for (const i of solids) { this.center(i, p); reach = Math.max(reach, Math.hypot(p[0], p[2])); }
+      const floorRadius = reach * 2.5;
+      const free = new Uint16Array(this.outside.length), looked = new Uint16Array(this.outside.length);
+      for (const v of withDepth) {
+        const { R, pos, f, w, h, core: inside, depth } = v;
+        // Distance along the camera axis to a world point (positive in front).
+        const camDepth = (q) => -(R[2] * (q[0] - pos[0]) + R[5] * (q[1] - pos[1]) + R[8] * (q[2] - pos[2]));
+        // 1. The carved shape's nearest surface in this view (a z-buffer).
+        const zb = new Float32Array(w * h).fill(Infinity);
+        const r = Math.max(1, Math.round((f * this.step) / v.dist / 2));
+        for (const i of solids) {
+          const k = this.project(v, this.center(i, p));
+          if (k < 0) continue;
+          const z = camDepth(p), u = k % w, vv = (k - u) / w;
+          for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+              const x = u + dx, y = vv + dy;
+              if (x >= 0 && y >= 0 && x < w && y < h && z < zb[y * w + x]) zb[y * w + x] = z;
+            }
+          }
+        }
+        // 2. Calibrate: fit 1/depth = a·raw + b on pixels whose true distance we know.
+        //    - The floor around the object: we know its height and the camera, so each floor pixel's
+        //      distance is exact, from near to far (and nothing on it is hidden).
+        //    - The outline: the carved shape touches the real object there (skipping the outermost
+        //      pixels, which the depth model blurs into what's behind).
+        //    Then refit on the 70% of pixels that agree best.
+        const fromEdge = depthMap(inside, w, h);
+        const rim = Math.max(3, Math.round(w / 50));
+        const xs = [], ys = [];
+        for (let k = 0; k < w * h; k++) {
+          if (inside[k] && fromEdge[k] > 2 && fromEdge[k] <= rim + 2 && depth[k] > 0 && zb[k] < Infinity) {
+            xs.push(depth[k]); ys.push(1 / zb[k]);
+          }
+        }
+        if (floor > -Infinity) {
+          for (let y = 0; y < h; y += 2) {
+            for (let x = 0; x < w; x += 2) {
+              const k = y * w + x;
+              if (v.bin[k] || !(depth[k] > 0)) continue;
+              const d = normalize(rotate(R, [(x + 0.5 - w / 2) / f, -(y + 0.5 - h / 2) / f, -1]));
+              if (d[1] > -0.05) continue;
+              const t = (floor - pos[1]) / d[1];
+              const hx = pos[0] + t * d[0], hz = pos[2] + t * d[2];
+              if (Math.hypot(hx, hz) > floorRadius) continue; // stay on the table near the object
+              const z = t * -(R[2] * d[0] + R[5] * d[1] + R[8] * d[2]);
+              xs.push(depth[k]); ys.push(1 / z);
+            }
+          }
+        }
+        if (xs.length < 50) continue;
+        let fit = linearFit(xs, ys);
+        const res = xs.map((q, n) => Math.abs(fit.a * q + fit.b - ys[n]));
+        const cut = [...res].sort((m, n) => m - n)[Math.floor(res.length * 0.7)];
+        fit = linearFit(xs.filter((_, n) => res[n] <= cut), ys.filter((_, n) => res[n] <= cut));
+        if (!(fit.a > 0 && fit.r2 > 0.5)) continue; // depth doesn't line up with the scene: don't trust it
+        v.depthFit = fit;
+        // 3. Voxels clearly in front of the observed surface are air.
+        for (const i of solids) {
+          const k = this.project(v, this.center(i, p));
+          if (k < 0 || !inside[k]) continue;
+          const inv = fit.a * depth[k] + fit.b;
+          if (inv <= 0) continue;
+          const observed = 1 / inv, z = camDepth(p);
+          looked[i]++;
+          if (z < observed - Math.max(2 * this.step, 0.06 * observed)) free[i]++;
+        }
+      }
+      this.dug = new Uint8Array(this.outside.length);
+      let count = 0;
+      for (const i of solids) {
+        if (free[i] >= 2 && free[i] >= looked[i] * 0.5) { this.dug[i] = 1; count++; }
+      }
+      return count;
     }
 
     // Surface voxels for the live preview: [x, y, z, nx, ny, nz] in world units.
@@ -586,6 +680,16 @@
     return mask;
   };
 
+  // Least-squares line y = a·x + b, with r².
+  function linearFit(xs, ys) {
+    const n = xs.length;
+    let sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+    for (let k = 0; k < n; k++) { sx += xs[k]; sy += ys[k]; sxx += xs[k] * xs[k]; sxy += xs[k] * ys[k]; syy += ys[k] * ys[k]; }
+    const vx = sxx - (sx * sx) / n, vy = syy - (sy * sy) / n, cxy = sxy - (sx * sy) / n;
+    const a = vx ? cxy / vx : 0, b = (sy - a * sx) / n;
+    return { a, b, r2: vx && vy ? (cxy * cxy) / (vx * vy) : 0 };
+  }
+
   // Overlap (IoU) between a new cut-out and a previous view's outline, after lining up their centres.
   function shapeSimilarity(prev, mask, stats) {
     const { w, h, bin } = prev;
@@ -707,6 +811,23 @@
     return keepConnected(mask, w, h, used);
   };
 
+  // Keep a sharp, full-resolution crop around the object for the depth model (the analysis frame is
+  // too coarse to see into a shoe). Stored as a JPEG with where it sits in the frame (0..1 units).
+  const depthCanvas = document.createElement('canvas');
+  L.captureCrop = function (view, source, srcW, srcH) {
+    const { stats, w, h } = view;
+    const aspect = srcW / srcH;
+    const bw = (stats.maxX - stats.minX + 1) / w, bh = (stats.maxY - stats.minY + 1) / h;
+    const ch = Math.min(1, Math.max(bh, bw * aspect) * 1.3), cw = Math.min(1, ch / aspect);
+    const cx = (stats.minX + stats.maxX + 1) / 2 / w, cy = (stats.minY + stats.maxY + 1) / 2 / h;
+    const x0 = Math.min(1 - cw, Math.max(0, cx - cw / 2)), y0 = Math.min(1 - ch, Math.max(0, cy - ch / 2));
+    const k = Math.min(1, 518 / Math.max(cw * srcW, ch * srcH));
+    depthCanvas.width = Math.max(8, Math.round(cw * srcW * k));
+    depthCanvas.height = Math.max(8, Math.round(ch * srcH * k));
+    depthCanvas.getContext('2d').drawImage(source, x0 * srcW, y0 * srcH, cw * srcW, ch * srcH, 0, 0, depthCanvas.width, depthCanvas.height);
+    view.crop = { url: depthCanvas.toDataURL('image/jpeg', 0.88), x0, y0, cw, ch };
+  };
+
   // One capture while scanning, shared by the phone UI and the tests. `state` carries the last known
   // centre (keypoint), a pending user tap, and how many captures in a row failed. After a few failures
   // we stop guessing and ask the user to tap the object (needTap).
@@ -725,6 +846,7 @@
     }
     const view = mask && carver.addView({ image, mask, rotation }, { anchored });
     if (view) {
+      L.captureCrop(view, source, srcW, srcH);
       state.keypoint = { x: (view.stats.cx + 0.5) / w, y: (view.stats.cy + 0.5) / h };
       state.misses = 0;
       state.needTap = false;
@@ -799,6 +921,18 @@
       ui.reviewBuild.addEventListener('click', () => this.build());
       ui.reviewMore.addEventListener('click', () => this.scanMore());
       ui.reviewCancel.addEventListener('click', () => this.close());
+      ui.openings.addEventListener('change', async () => {
+        if (this.refining || !this.carver) return;
+        this.carver.useOpenings = ui.openings.checked;
+        if (ui.openings.checked && !this.carver.views.some((v) => v.depth)) {
+          this.refining = true;
+          ui.reviewBuild.disabled = true;
+          await this.findOpenings();
+          this.refining = false;
+          ui.reviewBuild.disabled = false;
+        }
+        this.refreshReview();
+      });
     }
 
     status(msg) { this.ui.status.textContent = msg; }
@@ -882,6 +1016,7 @@
         return;
       }
       const view = this.carver.addView(pending, { anchored: true });
+      if (view) L.captureCrop(view, this.ui.video, this.ui.video.videoWidth, this.ui.video.videoHeight);
       if (!view) {
         this.phase = 'select';
         this.status('That cut-out can\'t be used (it runs off the screen or is tiny). Step back and tap again.');
@@ -908,11 +1043,58 @@
       this.refining = true;
       this.carver.refine((f) => { this.ui.reviewInfo.textContent = `Lining up your captures… ${Math.round(f * 100)}%`; })
         .catch((err) => console.error(err))
+        .then(() => this.findOpenings())
+        .catch((err) => console.error(err))
         .then(() => {
           this.refining = false;
           this.ui.reviewBuild.disabled = false;
           if (this.reviewing) this.refreshReview();
         });
+    }
+
+    // Run the depth model on up to 10 captures spread around the object, then dig out what they see into.
+    async findOpenings() {
+      const { ui, carver } = this;
+      if (!ui.openings.checked) return;
+      const todo = carver.views.filter((v) => !v.depth);
+      const pick = todo.filter((_, n) => n % Math.max(1, Math.ceil(todo.length / 10)) === 0).slice(0, 10);
+      if (!pick.length) { carver.useOpenings = true; carver.applyDepth(); return; }
+      ui.reviewInfo.textContent = 'Looking for openings (the first time, this downloads a 27 MB AI model)…';
+      try {
+        this.depthModel = this.depthModel || await this.T.loadDepth();
+        const c = document.createElement('canvas');
+        for (let n = 0; n < pick.length; n++) {
+          if (!this.reviewing) return;
+          ui.reviewInfo.textContent = `Looking for openings… ${n + 1} of ${pick.length}`;
+          const v = pick[n];
+          // Prefer the sharp crop kept at capture time; fall back to the whole analysis frame.
+          let crop = v.crop;
+          if (!crop) {
+            c.width = v.w; c.height = v.h;
+            c.getContext('2d').putImageData(v.image, 0, 0);
+            crop = { url: c.toDataURL('image/jpeg', 0.9), x0: 0, y0: 0, cw: 1, ch: 1 };
+          }
+          const out = await this.depthModel(crop.url);
+          const d = out.predicted_depth;
+          const [dh, dw] = d.dims.slice(-2);
+          const raw = new Float32Array(v.w * v.h);
+          for (let y = 0; y < v.h; y++) {
+            const sy = Math.floor((((y + 0.5) / v.h - crop.y0) / crop.ch) * dh);
+            if (sy < 0 || sy >= dh) continue;
+            for (let x = 0; x < v.w; x++) {
+              const sx = Math.floor((((x + 0.5) / v.w - crop.x0) / crop.cw) * dw);
+              if (sx >= 0 && sx < dw) raw[y * v.w + x] = d.data[sy * dw + sx];
+            }
+          }
+          carver.setDepth(v, raw);
+        }
+        carver.useOpenings = true;
+        carver.applyDepth();
+      } catch (err) {
+        console.error(err);
+        ui.openings.checked = false;
+        ui.reviewInfo.textContent = `Couldn't run the depth model (${err.message}). The shape is outline-only.`;
+      }
     }
 
     build() {
@@ -1187,6 +1369,7 @@
 
     refreshReview() {
       const { carver, ui } = this;
+      if (carver.useOpenings) carver.applyDepth(); // captures may have been switched on or off
       for (const { view, item, eye, badge } of this.reviewItems) {
         item.classList.toggle('off', !view.enabled);
         eye.innerHTML = view.enabled ? EYE : EYE_OFF;
@@ -1194,8 +1377,10 @@
         const { missing, extra } = carver.agreement(view);
         badge.hidden = !(missing > 0.2 || extra > 0.35);
       }
-      ui.reviewInfo.textContent = `Using ${carver.count} of ${carver.all.length} captures. ` +
-        'Tap the eye on a capture to leave it out and see if the shape gets better.';
+      const dug = carver.useOpenings && carver.dug ? carver.dug.reduce((a, b) => a + b, 0) : 0;
+      ui.reviewInfo.textContent = `Using ${carver.count} of ${carver.all.length} captures` +
+        (dug ? ', with openings dug out from depth' : '') +
+        '. Tap the eye on a capture to leave it out and see if the shape gets better.';
       this.renderReview3d();
     },
 
@@ -1248,8 +1433,9 @@
       this.r3d.mesh = mesh;
       const h = rows * L.BRICK_HEIGHT, span = Math.max(h, cols, depth);
       if (!this.r3d.framed) {
+        // Look down at it from about 40°, so openings (the inside of a shoe or cup) are visible.
         controls.target.set(0, h / 2, 0);
-        camera.position.set(span * 0.9, h / 2 + span * 0.5, span * 1.6);
+        camera.position.set(span * 0.8, h / 2 + span * 1.3, span * 1.3);
         this.r3d.framed = true;
       }
     },

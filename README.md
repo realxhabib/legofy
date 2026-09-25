@@ -48,6 +48,12 @@ no app, no marker and no upload: everything runs on the phone.
   Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. Nothing can see
   under the object, so the floor is found where the rays grazing the bottom of each outline first touch
   the shape, and the phantom block below it is trimmed.
+- **Openings:** outlines alone can't open up a hollow (nothing sees *through* the inside of a shoe), so
+  after **Done** an on-device depth model (Depth Anything V2 small via transformers.js, ~27 MB, fetched on
+  first use, WebGPU when available) estimates depth on up to 10 captures, from sharp full-resolution crops
+  kept at capture time. Each depth map is calibrated against the tabletop around the object (its distance
+  is known exactly from the floor height and the camera) and the object's outline, and voxels that at least
+  two views clearly see past are dug out. A switch on the review screen turns this off for comparison.
 - **Colors:** each surface voxel takes the majority LEGO color from the frames that face it most directly,
   using only pixels well inside the cut-out.
 - **You stay in control:** after tapping the object, the scanner highlights what it picked and waits for a
@@ -55,8 +61,8 @@ no app, no marker and no upload: everything runs on the phone.
   capture. The eye button on each capture leaves it out (or brings it back) and the model recarves
   instantly, so you can compare. Captures that disagree with the rest are flagged ⚠.
 
-Limits: the object needs to stand out from its background. Hollows and dents (the inside of a bowl)
-fill in. Needs https (Vercel is fine) and camera plus motion permission. iOS asks for motion access
+Limits: the object needs to stand out from its background. Openings are only dug as deep as some
+capture could see into them. Needs https (Vercel is fine) and camera plus motion permission. iOS asks for motion access
 when you tap Scan.
 
 ## 3D scans from other apps
