@@ -10,7 +10,7 @@
   <header>
     <div class="logo" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <h1>Legofy</h1>
-    <p class="tagline">Drop in an image and watch it get built, one brick at a time.</p>
+    <p class="tagline">Drop in an image and watch it get built in 3D, one brick at a time.</p>
   </header>
 
   <main>
@@ -34,15 +34,14 @@
         <label class="row">
           <span>Build order</span>
           <select id="order">
-            <option value="bottom-up">Bottom to top</option>
-            <option value="top-down">Top to bottom</option>
-            <option value="by-color">One color at a time</option>
-            <option value="center-out">Center outward</option>
-            <option value="random">Random</option>
+            <option value="left-right">Row by row, left to right</option>
+            <option value="zigzag">Row by row, zigzag</option>
+            <option value="center-out">Row by row, center outward</option>
+            <option value="random">Row by row, random</option>
           </select>
         </label>
         <label class="check"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
-        <label class="check"><input id="singles" type="checkbox"> 1 × 1 plates only</label>
+        <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
       </fieldset>
 
       <section class="parts">
@@ -58,6 +57,7 @@
           <p>Your build will appear here.</p>
         </div>
         <canvas id="canvas" hidden></canvas>
+        <p id="hint" class="hint" hidden>Drag to orbit · scroll to zoom · right-drag to pan</p>
       </div>
 
       <div id="controls" class="controls" hidden>
@@ -73,12 +73,13 @@
           <button id="play" class="primary" title="Play / pause (Space)">▶ Build</button>
           <button id="step" title="Next brick (→)">▶</button>
           <button id="finish" title="Finish (End)">⏭</button>
+          <button id="view" title="Reset camera">⟲ View</button>
           <label class="speed">Speed
-            <input id="speed" type="range" min="0" max="100" value="45">
+            <input id="speed" type="range" min="0" max="100" value="40">
             <output id="speedOut"></output>
           </label>
           <span class="spacer"></span>
-          <button id="savePng" title="Download the finished mosaic">PNG</button>
+          <button id="savePng" title="Download a picture of the current view">PNG</button>
           <button id="saveCsv" title="Download the parts list">Parts CSV</button>
         </div>
       </div>
@@ -87,9 +88,24 @@
 
   <div id="dropOverlay" class="drop-overlay" hidden>Drop to build</div>
 
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
   <script src="src/palette.js"></script>
   <script src="src/mosaic.js"></script>
-  <script src="src/renderer.js"></script>
+  <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
+  <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry });
+  </script>
 </body>
 </html>

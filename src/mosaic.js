@@ -1,11 +1,9 @@
-// Image -> stud grid -> list of bricks with a build order.
+// Image -> stud grid -> an upright wall of 1×N bricks with a bottom-up build order.
 (function (L) {
-  // Plate footprints [w, h] in studs, largest first so the tiler prefers big pieces.
-  const BRICK_SIZES = [
-    [2, 8], [8, 2], [2, 6], [6, 2], [2, 4], [4, 2], [1, 8], [8, 1],
-    [2, 3], [3, 2], [1, 6], [6, 1], [2, 2], [1, 4], [4, 1],
-    [1, 3], [3, 1], [1, 2], [2, 1], [1, 1],
-  ].sort((a, b) => b[0] * b[1] - a[0] * a[1]);
+  // Real 1×N brick lengths, longest first.
+  const BRICK_LENGTHS = [8, 6, 4, 3, 2, 1];
+  // A brick is 9.6mm tall and 8mm wide, so each "pixel" of the wall is taller than it is wide.
+  L.BRICK_HEIGHT = 1.2;
 
   // Downscale in halving steps so small grids still average the whole source image.
   function resize(img, cols, rows) {
@@ -80,87 +78,90 @@
     return grid;
   }
 
-  // Greedily cover same-colored regions with the largest plates that fit.
-  function tile(grid, cols, rows, sizes) {
-    const used = new Uint8Array(cols * rows);
+  // Split each same-color run of every row into bricks, preferring long bricks whose
+  // ends don't line up with a joint in the row below (staggered, like a real wall).
+  function tile(grid, cols, rows, lengths) {
     const bricks = [];
-    const fits = (x, y, w, h, c) => {
-      if (x + w > cols || y + h > rows) return false;
-      for (let yy = y; yy < y + h; yy++) {
-        for (let xx = x; xx < x + w; xx++) {
-          const i = yy * cols + xx;
-          if (used[i] || grid[i] !== c) return false;
+    let jointsBelow = new Set();
+    for (let level = 0; level < rows; level++) {
+      const y = rows - 1 - level;
+      const joints = new Set();
+      let x = 0;
+      while (x < cols) {
+        const c = grid[y * cols + x];
+        if (c < 0) { x++; continue; }
+        let end = x;
+        while (end < cols && grid[y * cols + end] === c) end++;
+        while (x < end) {
+          const fitting = lengths.filter((n) => x + n <= end);
+          const n = fitting.find((n) => x + n === end || !jointsBelow.has(x + n)) || fitting[0];
+          bricks.push({ x, y, level, w: n, h: 1, color: c });
+          x += n;
+          joints.add(x);
         }
       }
-      return true;
-    };
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const i = y * cols + x;
-        if (used[i] || grid[i] < 0) continue;
-        const c = grid[i];
-        for (const [w, h] of sizes) {
-          if (!fits(x, y, w, h, c)) continue;
-          for (let yy = y; yy < y + h; yy++) {
-            for (let xx = x; xx < x + w; xx++) used[yy * cols + xx] = 1;
-          }
-          bricks.push({ x, y, w, h, color: c });
-          break;
-        }
-      }
+      jointsBelow = joints;
     }
     return bricks;
   }
 
+  // Every order builds row by row from the bottom, so no brick ever floats.
   const ORDERS = {
-    'bottom-up': (bricks) =>
-      bricks.sort((a, b) => (b.y + b.h) - (a.y + a.h) || a.x - b.x),
-    'top-down': (bricks) =>
-      bricks.sort((a, b) => a.y - b.y || a.x - b.x),
-    'by-color': (bricks) => {
-      const count = {};
-      for (const b of bricks) count[b.color] = (count[b.color] || 0) + b.w * b.h;
-      return bricks.sort((a, b) =>
-        count[b.color] - count[a.color] || a.color - b.color ||
-        (b.y + b.h) - (a.y + a.h) || a.x - b.x);
-    },
-    'center-out': (bricks, cols, rows) => {
-      const d = (b) => Math.hypot(b.x + b.w / 2 - cols / 2, b.y + b.h / 2 - rows / 2);
-      return bricks.sort((a, b) => d(a) - d(b));
+    'left-right': (bricks) => bricks.sort((a, b) => a.level - b.level || a.x - b.x),
+    zigzag: (bricks) => bricks.sort((a, b) =>
+      a.level - b.level || (a.level % 2 ? b.x - a.x : a.x - b.x)),
+    'center-out': (bricks, cols) => {
+      const d = (b) => Math.abs(b.x + b.w / 2 - cols / 2);
+      return bricks.sort((a, b) => a.level - b.level || d(a) - d(b));
     },
     random: (bricks) => {
-      for (let i = bricks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [bricks[i], bricks[j]] = [bricks[j], bricks[i]];
-      }
-      return bricks;
+      const key = new Map(bricks.map((b) => [b, Math.random()]));
+      return bricks.sort((a, b) => a.level - b.level || key.get(a) - key.get(b));
     },
   };
 
-  L.buildMosaic = function (img, { cols, dither = false, onlySingles = false, order = 'bottom-up' }) {
+  // Drop fully transparent margins so the subject stands directly on the baseplate.
+  function crop(grid, cols, rows) {
+    let x0 = cols, x1 = -1, y0 = rows, y1 = -1;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[y * cols + x] < 0) continue;
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+        y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      }
+    }
+    if (x1 < 0) return { grid, cols, rows };
+    const w = x1 - x0 + 1, h = y1 - y0 + 1;
+    const out = new Int16Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) out[y * w + x] = grid[(y + y0) * cols + x + x0];
+    }
+    return { grid: out, cols: w, rows: h };
+  }
+
+  L.buildMosaic = function (img, { cols: width, dither = false, onlySingles = false, order = 'left-right' }) {
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
-    const rows = Math.max(1, Math.round(cols * ih / iw));
+    const fullRows = Math.max(1, Math.round((width * ih) / iw / L.BRICK_HEIGHT));
     const palette = L.PALETTE;
-    const grid = quantize(resize(img, cols, rows), palette, dither);
-    const sizes = onlySingles ? [[1, 1]] : BRICK_SIZES;
-    const bricks = ORDERS[order](tile(grid, cols, rows, sizes), cols, rows);
+    const { grid, cols, rows } = crop(quantize(resize(img, width, fullRows), palette, dither), width, fullRows);
+    const lengths = onlySingles ? [1] : BRICK_LENGTHS;
+    const bricks = ORDERS[order](tile(grid, cols, rows, lengths), cols);
     bricks.forEach((b, i) => { b.step = i; });
     return { cols, rows, grid, bricks, palette };
   };
 
-  // Aggregate bricks into a parts list keyed by color + footprint.
+  // Aggregate bricks into a parts list keyed by color + length.
   L.partsList = function (bricks, palette) {
     const map = new Map();
     for (const b of bricks) {
-      const a = Math.min(b.w, b.h), c = Math.max(b.w, b.h);
-      const key = `${b.color}:${a}x${c}`;
+      const key = `${b.color}:${b.w}`;
       b.partKey = key;
       if (!map.has(key)) {
-        map.set(key, { key, color: palette[b.color], size: `${a} × ${c}`, area: a * c, total: 0, placed: 0 });
+        map.set(key, { key, color: palette[b.color], length: b.w, size: `1 × ${b.w}`, total: 0, placed: 0 });
       }
       map.get(key).total++;
     }
-    return [...map.values()].sort((p, q) => q.total - p.total || q.area - p.area);
+    return [...map.values()].sort((p, q) => q.total - p.total || q.length - p.length);
   };
 })(window.Legofy = window.Legofy || {});

@@ -140,7 +140,7 @@ select {
 .plate {
   grid-row: span 2;
   justify-self: center;
-  width: calc(var(--w) * 8px); height: calc(var(--h) * 8px);
+  width: calc(var(--w) * 5px); height: 10px;
   max-width: 44px;
   background: var(--c);
   border-radius: 2px;
@@ -155,14 +155,22 @@ select {
   display: grid;
   place-items: center;
   min-height: 420px;
-  padding: 12px;
+  padding: 0;
   border-radius: 16px;
   background:
     radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.06), transparent 60%),
     var(--stage);
   overflow: hidden;
 }
-canvas { display: block; border-radius: 8px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45); }
+canvas { display: block; border-radius: 12px; touch-action: none; cursor: grab; }
+canvas:active { cursor: grabbing; }
+.canvas-wrap { position: relative; }
+.hint {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+  margin: 0; padding: 4px 12px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 12px; white-space: nowrap;
+  pointer-events: none;
+}
 .empty { text-align: center; color: #aeb3ba; }
 .empty-bricks { display: flex; gap: 6px; justify-content: center; margin-bottom: 10px; }
 .empty-bricks i {

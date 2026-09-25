@@ -1,21 +1,44 @@
-// UI wiring and the build playback loop.
+// UI wiring and the build playback loop. Legofy.start(THREE) is called once three.js has loaded.
 (function (L) {
   const $ = (id) => document.getElementById(id);
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), sample: $('sample'),
     cols: $('cols'), colsOut: $('colsOut'), order: $('order'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
-    canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), controls: $('controls'),
+    canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
-    restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'),
+    restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
     speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'),
     dropOverlay: $('dropOverlay'),
   };
 
-  const renderer = new L.Renderer(el.canvas);
   const state = {
-    img: null, model: null, parts: [], partEls: new Map(),
+    scene: null, img: null, model: null, parts: [], partEls: new Map(),
     placed: 0, active: [], playing: false, acc: 0, last: 0, uiDirty: true, lastUi: 0,
+  };
+
+  // If three.js never arrives (offline, blocked CDN), say so instead of silently doing nothing.
+  const loadTimeout = setTimeout(() => {
+    if (!state.scene) showError('Could not load the 3D engine (three.js). Check your internet connection and reload.');
+  }, 10000);
+
+  function showError(msg) {
+    el.empty.querySelector('p').textContent = msg;
+    el.empty.hidden = false;
+    el.canvas.hidden = true;
+  }
+
+  L.start = function (THREE) {
+    clearTimeout(loadTimeout);
+    try {
+      state.scene = new L.Scene3D(el.canvas, THREE);
+    } catch (err) {
+      showError('Your browser could not start WebGL, which the 3D build needs.');
+      throw err;
+    }
+    state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
+    if (state.img) build(true);
+    requestAnimationFrame(tick);
   };
 
   // ---------- image input ----------
@@ -81,8 +104,6 @@
     g.fillRect(0, 0, 640, 300);
     g.fillStyle = '#ffe36e';
     g.beginPath(); g.arc(320, 270, 90, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#fff';
-    for (let i = 0; i < 40; i++) g.fillRect((i * 97) % 640, (i * 53) % 140, 3, 3);
     const hills = (color, base, amp, f, ph) => {
       g.fillStyle = color;
       g.beginPath(); g.moveTo(0, 480);
@@ -113,7 +134,7 @@
   }
 
   function build(autoplay) {
-    if (!state.img) return;
+    if (!state.img || !state.scene) return;
     state.model = L.buildMosaic(state.img, {
       cols: +el.cols.value,
       dither: el.dither.checked,
@@ -124,27 +145,27 @@
     renderParts();
     el.empty.hidden = true;
     el.canvas.hidden = false;
+    el.hint.hidden = false;
     el.controls.hidden = false;
     el.scrub.max = state.model.bricks.length;
     state.placed = 0;
     state.active = [];
     layout();
+    state.scene.setup(state.model);
     seek(0);
     setPlaying(autoplay);
   }
 
   function layout() {
-    if (!state.model) return;
-    const maxW = el.canvasWrap.clientWidth - 24;
-    const maxH = Math.max(240, window.innerHeight - el.controls.offsetHeight - 140);
-    renderer.setup(state.model, maxW, maxH);
-    renderer.redrawTo(state.placed);
+    const w = el.canvasWrap.clientWidth;
+    const h = Math.round(Math.max(320, Math.min(window.innerHeight - 250, w * 0.8)));
+    state.scene.resize(w, h);
   }
 
   let resizeTimer;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { flushActive(); layout(); }, 150);
+    resizeTimer = setTimeout(() => { if (state.model) layout(); }, 100);
   });
 
   // ---------- playback ----------
@@ -152,15 +173,16 @@
   const bricksPerSecond = () => Math.round(Math.pow(10, (el.speed.value / 100) * 3)); // 1 .. 1000
 
   function spawn(now) {
-    const brick = state.model.bricks[state.placed++];
-    const duration = Math.min(450, Math.max(140, 4000 / bricksPerSecond()));
-    state.active.push({ brick, start: now, duration });
-    partFor(brick).placed++;
+    const i = state.placed++;
+    const duration = Math.min(700, Math.max(180, 6000 / bricksPerSecond()));
+    state.active.push({ i, start: now, duration });
+    state.scene.drop(i, 0);
+    partFor(state.model.bricks[i]).placed++;
     state.uiDirty = true;
   }
 
   function flushActive() {
-    for (const a of state.active) renderer.commit(a.brick);
+    for (const a of state.active) state.scene.place(a.i);
     state.active = [];
   }
 
@@ -171,7 +193,7 @@
     state.acc = 0;
     for (const p of state.parts) p.placed = 0;
     for (let i = 0; i < state.placed; i++) partFor(state.model.bricks[i]).placed++;
-    renderer.redrawTo(state.placed);
+    state.scene.showUpTo(state.placed);
     state.uiDirty = true;
   }
 
@@ -196,16 +218,20 @@
         if (state.placed >= total && !state.active.length) setPlaying(false);
       }
       state.active = state.active.filter((a) => {
-        if (now - a.start < a.duration) return true;
-        renderer.commit(a.brick);
+        const t = (now - a.start) / a.duration;
+        if (t < 1) { state.scene.drop(a.i, t); return true; }
+        state.scene.place(a.i);
         return false;
       });
-      const ghost = !state.playing && !state.active.length && state.placed < total ? m.bricks[state.placed] : null;
-      renderer.frame(state.active, now, ghost);
+      const last = state.placed ? m.bricks[state.placed - 1] : null;
+      const focus = last && { x: last.x + last.w / 2 - m.cols / 2, close: bricksPerSecond() <= 30 };
+      state.scene.setProgress(last ? last.level + 1 : 0, focus);
+      const ghost = !state.playing && !state.active.length && state.placed < total ? state.placed : null;
+      state.scene.setGhost(ghost, now);
       if (state.uiDirty && now - state.lastUi > 60) updateUi(now);
     }
+    state.scene.render(dt);
   }
-  requestAnimationFrame(tick);
 
   el.play.addEventListener('click', () => setPlaying(!state.playing));
   el.step.addEventListener('click', () => {
@@ -217,6 +243,7 @@
   el.back.addEventListener('click', () => { setPlaying(false); seek(state.placed - 1); });
   el.restart.addEventListener('click', () => { setPlaying(false); seek(0); });
   el.finish.addEventListener('click', () => { setPlaying(false); seek(Infinity); });
+  el.view.addEventListener('click', () => state.scene.resetView());
   el.scrub.addEventListener('input', () => { setPlaying(false); seek(+el.scrub.value); });
   el.speed.addEventListener('input', () => { el.speedOut.value = `${bricksPerSecond()}/s`; });
   el.speedOut.value = `${bricksPerSecond()}/s`;
@@ -241,7 +268,7 @@
     for (const part of state.parts) {
       const li = document.createElement('li');
       li.innerHTML = `
-        <span class="plate" style="--c:${part.color.css}; --w:${part.size.split(' × ')[1]}; --h:${part.size.split(' × ')[0]}"></span>
+        <span class="plate" style="--c:${part.color.css}; --w:${part.length}"></span>
         <span class="pname"><b>${part.size}</b> ${part.color.name}</span>
         <span class="pcount"></span>
         <span class="pbar"><i></i></span>`;
@@ -250,7 +277,7 @@
     }
     const colors = new Set(state.model.bricks.map((b) => b.color)).size;
     el.partsSummary.textContent =
-      `${state.model.bricks.length.toLocaleString()} plates · ${colors} colors · ${state.model.cols}×${state.model.rows} studs`;
+      `${state.model.bricks.length.toLocaleString()} bricks · ${colors} colors · ${state.model.cols} studs wide × ${state.model.rows} bricks tall`;
   }
 
   function updateUi(now) {
@@ -259,9 +286,9 @@
     const m = state.model;
     const total = m.bricks.length;
     el.scrub.value = state.placed;
+    el.counter.textContent = `${state.placed.toLocaleString()} / ${total.toLocaleString()}`;
     el.play.textContent = state.playing ? '❚❚ Pause'
       : state.placed >= total ? '↻ Build again' : state.placed ? '▶ Resume' : '▶ Build';
-    el.counter.textContent = `${state.placed.toLocaleString()} / ${total.toLocaleString()}`;
 
     const next = !state.playing && state.placed < total ? m.bricks[state.placed] : null;
     const shown = next || m.bricks[state.placed - 1];
@@ -270,15 +297,14 @@
       const c = m.palette[shown.color];
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
-      const size = `${Math.min(shown.w, shown.h)} × ${Math.max(shown.w, shown.h)}`;
       el.caption.textContent = next
-        ? `Next: ${size} ${c.name} plate at column ${next.x + 1}, row ${next.y + 1}`
-        : `${size} ${c.name} plate`;
+        ? `Next: 1 × ${next.w} ${c.name} brick, row ${next.level + 1}, stud ${next.x + 1} from the left`
+        : `1 × ${shown.w} ${c.name} brick, row ${shown.level + 1}`;
     } else {
       el.swatch.hidden = true;
       el.caption.textContent = 'Press Build to start';
     }
-    if (state.placed === total && !state.active.length) el.caption.textContent = 'Done! Every plate is in place.';
+    if (state.placed === total && !state.active.length) el.caption.textContent = 'Done! Every brick is in place.';
 
     for (const { part, li, count, bar } of state.partEls.values()) {
       count.textContent = `${part.placed}/${part.total}`;
@@ -299,13 +325,11 @@
   }
 
   el.savePng.addEventListener('click', () => {
-    setPlaying(false);
-    seek(Infinity);
-    renderer.toBlob((blob) => download(blob, 'legofy-mosaic.png'));
+    state.scene.snapshot((blob) => download(blob, 'legofy-build.png'));
   });
 
   el.saveCsv.addEventListener('click', () => {
-    const rows = [['Color', 'Plate', 'Quantity'], ...state.parts.map((p) => [p.color.name, p.size.replace(' × ', 'x'), p.total])];
+    const rows = [['Color', 'Brick', 'Quantity'], ...state.parts.map((p) => [p.color.name, `1x${p.length}`, p.total])];
     download(new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' }), 'legofy-parts.csv');
   });
 })(window.Legofy);
