@@ -73,6 +73,16 @@ it; pieces side by side in one layer aren't joined. From that graph:
 - It also counts stud connections and checks that no two pieces overlap. The result is on the page and
   on the instructions' cover.
 
+## Slopes
+
+**Smooth curves with slopes** (on by default, brick mode) replaces the outer stud of each stair step
+with a real 45° slope: where a cell has open air above and beside it and the cell behind carries on up, a
+1 × 2 slope (Rebrickable 3040b, BrickLink 3040) covers both, its sloped face over the step. Two side by
+side facing the same way become a 2 × 2 slope (3039), and under overhangs the same goes upside down with
+inverted slopes (3665). Only in colours each slope is actually made in (`L.SLOPES` in
+`src/parts-data.js`, from Rebrickable). Slopes have studs only on their flat half, which the build check
+accounts for; the parts list, BrickLink list, instructions and 3D view all show them.
+
 ## Sub-assemblies
 
 Like a real set, bigger models are built in sections (`L.planAssemblies` in `src/buildcheck.js`). The

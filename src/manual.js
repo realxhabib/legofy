@@ -11,16 +11,26 @@
   const darken = (rgb, t) => rgb.map((v) => Math.round(v * (1 - t)));
 
   // A piece seen from above: body, darker outline, studs.
-  function drawPiece(doc, x, y, a, c, rgb, unit) {
+  // shape: 'slope' / 'slope2' (the right-hand half slopes down, no studs) or 'inverted'.
+  function drawPiece(doc, x, y, a, c, rgb, unit, shape = null) {
     const w = c * unit, h = a * unit;
     doc.setFillColor(...hex(rgb));
     doc.setDrawColor(...darken(rgb, 0.45));
     doc.setLineWidth(0.25);
     doc.roundedRect(x, y, w, h, unit * 0.12, unit * 0.12, 'FD');
+    const sloped = shape === 'slope' || shape === 'slope2';
+    if (sloped) {
+      // the sloped half: lighter, with lines running down the slope
+      doc.setFillColor(...lighten(rgb, 0.35));
+      doc.rect(x + w / 2, y + 0.2, w / 2 - 0.2, h - 0.4, 'F');
+      doc.setDrawColor(...darken(rgb, 0.2));
+      doc.setLineWidth(0.12);
+      for (let k = 1; k < 4; k++) doc.line(x + w / 2 + (k * w) / 8, y + 0.4, x + w / 2 + (k * w) / 8, y + h - 0.4);
+    }
     doc.setFillColor(...lighten(rgb, 0.25));
     doc.setDrawColor(...darken(rgb, 0.25));
     doc.setLineWidth(0.15);
-    for (let i = 0; i < c; i++) {
+    for (let i = 0; i < (sloped ? c / 2 : c); i++) {
       for (let j = 0; j < a; j++) doc.circle(x + (i + 0.5) * unit, y + (j + 0.5) * unit, unit * 0.3, 'FD');
     }
     return w;
@@ -54,14 +64,28 @@
       g.strokeStyle = `rgb(${darken(rgb, 0.55).join(',')})`;
       g.lineWidth = Math.max(1.5, cell * 0.1);
       g.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+      if (b.shape === 'slope' || b.shape === 'slope2') {
+        // the sloped half, lighter, with lines running downhill
+        g.fillStyle = `rgb(${lighten(rgb, 0.4).join(',')})`;
+        g.strokeStyle = `rgb(${darken(rgb, 0.15).join(',')})`;
+        g.lineWidth = 1;
+        for (const [i, j] of L.lowCells(b)) {
+          const cx = x + i * cell, cy = y + j * cell;
+          g.fillRect(cx + 3, cy + 3, cell - 6, cell - 6);
+          for (let k = 1; k < 3; k++) {
+            g.beginPath();
+            if (b.dir % 2 === 0) { g.moveTo(cx + 3, cy + (k * cell) / 3); g.lineTo(cx + cell - 3, cy + (k * cell) / 3); }
+            else { g.moveTo(cx + (k * cell) / 3, cy + 3); g.lineTo(cx + (k * cell) / 3, cy + cell - 3); }
+            g.stroke();
+          }
+        }
+      }
       if (cell >= 10) {
         g.fillStyle = `rgb(${lighten(rgb, 0.22).join(',')})`;
-        for (let i = 0; i < b.w; i++) {
-          for (let j = 0; j < b.d; j++) {
-            g.beginPath();
-            g.arc(x + (i + 0.5) * cell, y + (j + 0.5) * cell, cell * 0.28, 0, Math.PI * 2);
-            g.fill();
-          }
+        for (const [i, j] of L.studCells(b)) {
+          g.beginPath();
+          g.arc(x + (i + 0.5) * cell, y + (j + 0.5) * cell, cell * 0.28, 0, Math.PI * 2);
+          g.fill();
         }
       }
     }
@@ -82,8 +106,8 @@
     const map = new Map();
     for (const b of bricks) {
       const a = Math.min(b.w, b.d), c = Math.max(b.w, b.d);
-      const key = `${b.color}:${a}x${c}`;
-      if (!map.has(key)) map.set(key, { color: b.color, a, c, n: 0 });
+      const key = `${b.color}:${b.shape || ''}${a}x${c}`;
+      if (!map.has(key)) map.set(key, { color: b.color, a, c, n: 0, shape: b.shape || null });
       map.get(key).n++;
     }
     return [...map.values()].sort((p, q) => q.a * q.c - p.a * p.c || p.color - q.color);
@@ -191,14 +215,14 @@
         if (y + rowH > PAGE_H - 16) y = drawInventory();
         const x = M + col * colW;
         const unit = Math.min(4.2, 30 / p.c);
-        drawPiece(doc, x, y + 2, p.a, p.c, p.color.rgb, unit);
+        drawPiece(doc, x, y + 2, p.shape ? (p.shape === 'slope2' ? 2 : 1) : p.a, p.shape ? 2 : p.c, p.color.rgb, unit, p.shape);
         doc.setTextColor(30);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(12);
         doc.text(`${p.total}×`, x + 36, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.text(`${p.a} × ${p.c} ${p.kind === 'baseplate' ? 'baseplate' : kind}`, x + 36, y + 10.5);
+        doc.text(p.shape ? p.size : `${p.a} × ${p.c} ${p.kind === 'baseplate' ? 'baseplate' : kind}`, x + 36, y + 10.5);
         doc.setTextColor(110);
         doc.text(`${p.color.name}${p.partNum ? ` · #${p.partNum}` : ''}`, x + 36, y + 14.5);
       });
@@ -242,7 +266,7 @@
           doc.setDrawColor(225);
           doc.setLineWidth(0.3);
           doc.roundedRect(M, top + 14, w, h, 2, 2, 'S');
-          fit(doc, snapshot(end, start), RW, RH, M + 1, top + 15, w - 2, h - 2);
+          fit(doc, snapshot(end, 0), RW, RH, M + 1, top + 15, w - 2, h - 2);
           doc.setFillColor(255, 244, 204);
           doc.roundedRect(M, top + 17 + h, w, 10, 2, 2, 'F');
           doc.setFont('helvetica', 'normal');
@@ -287,7 +311,7 @@
         doc.roundedRect(M, boxY, PAGE_W - 2 * M, 6 + rows * 10, 2, 2, 'F');
         for (const { p, x: px, row: r, unit, w } of layout) {
           const py = boxY + 3.5 + r * 10;
-          drawPiece(doc, px, py, p.a, p.c, model.palette[p.color].rgb, unit);
+          drawPiece(doc, px, py, p.a, p.c, model.palette[p.color].rgb, unit, p.shape);
           doc.setTextColor(30);
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(9);

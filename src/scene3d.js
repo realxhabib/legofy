@@ -41,7 +41,7 @@
 
       this.tmp = {
         m: new T.Matrix4(), s: new T.Matrix4(), q: new T.Quaternion(), p: new T.Vector3(), c: new T.Color(),
-        axis: new T.Vector3(0, 0, 1), one: new T.Vector3(1, 1, 1), sc: new T.Vector3(),
+        axis: new T.Vector3(0, 0, 1), one: new T.Vector3(1, 1, 1), sc: new T.Vector3(), turn: new T.Matrix4(),
       };
       this.zero = new T.Matrix4().makeScale(0, 0, 0);
 
@@ -72,7 +72,7 @@
         if (i < from) c.lerp(white, 0.62);
         const slot = this.slots[i];
         slot.mesh.setColorAt(slot.index, c);
-        for (let k = 0; k < b.w * b.d; k++) this.studs.setColorAt(slot.stud + k, c);
+        for (let k = 0; k < slot.studs.length; k++) this.studs.setColorAt(slot.stud + k, c);
       });
       for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
       if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
@@ -86,7 +86,7 @@
         if (set && !set.has(i)) c.lerp(white, 0.82);
         const slot = this.slots[i];
         slot.mesh.setColorAt(slot.index, c);
-        for (let k = 0; k < b.w * b.d; k++) this.studs.setColorAt(slot.stud + k, c);
+        for (let k = 0; k < slot.studs.length; k++) this.studs.setColorAt(slot.stud + k, c);
       });
       for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
       if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
@@ -143,33 +143,41 @@
       ground.receiveShadow = true;
       this.world.add(ground);
 
-      // One instanced mesh per brick footprint, plus one for every stud on every brick.
+      // One instanced mesh per piece shape, plus one for every stud on every piece. Slopes are made facing
+      // +x and turned to face their way.
+      const shapeKey = (b) => (b.shape ? b.shape : `${b.w}x${b.d}`);
       const byShape = new Map();
-      for (const b of bricks) byShape.set(`${b.w}x${b.d}`, (byShape.get(`${b.w}x${b.d}`) || 0) + 1);
+      for (const b of bricks) byShape.set(shapeKey(b), (byShape.get(shapeKey(b)) || 0) + 1);
       const meshes = new Map();
       for (const [shape, count] of byShape) {
-        const [w, d] = shape.split('x').map(Number);
-        const mesh = new T.InstancedMesh(this.boxGeometry(w - GAP, this.lh - GAP, d - GAP), this.material, count);
+        let geometry;
+        if (shape === 'slope' || shape === 'slope2' || shape === 'inverted') geometry = this.slopeGeometry(shape);
+        else {
+          const [w, d] = shape.split('x').map(Number);
+          geometry = this.boxGeometry(w - GAP, this.lh - GAP, d - GAP);
+        }
+        const mesh = new T.InstancedMesh(geometry, this.material, count);
         mesh.castShadow = mesh.receiveShadow = true;
         mesh.frustumCulled = false;
         mesh.userData.next = 0;
         meshes.set(shape, mesh);
         this.world.add(mesh);
       }
-      const studCount = bricks.reduce((n, b) => n + b.w * b.d, 0);
+      const studCells = bricks.map((b) => L.studCells(b));
+      const studCount = studCells.reduce((n, c) => n + c.length, 0);
       this.studs = new T.InstancedMesh(this.studGeometry(), this.material, studCount);
       this.studs.castShadow = this.studs.receiveShadow = true;
       this.studs.frustumCulled = false;
       this.world.add(this.studs);
 
       let studIndex = 0;
-      this.slots = bricks.map((b) => {
-        const mesh = meshes.get(`${b.w}x${b.d}`);
-        const slot = { mesh, index: mesh.userData.next++, stud: studIndex };
-        studIndex += b.w * b.d;
+      this.slots = bricks.map((b, n) => {
+        const mesh = meshes.get(shapeKey(b));
+        const slot = { mesh, index: mesh.userData.next++, stud: studIndex, studs: studCells[n] };
+        studIndex += slot.studs.length;
         this.tmp.c.set(model.palette[b.color].css);
         mesh.setColorAt(slot.index, this.tmp.c);
-        for (let i = 0; i < b.w * b.d; i++) this.studs.setColorAt(slot.stud + i, this.tmp.c);
+        for (let i = 0; i < slot.studs.length; i++) this.studs.setColorAt(slot.stud + i, this.tmp.c);
         return slot;
       });
       this.meshes = [...meshes.values()];
@@ -218,6 +226,21 @@
       return g;
     }
 
+    // A 45° slope facing +x, 2 studs long (x) and 1 or 2 wide (z), origin at the bottom centre: the back
+    // half is flat on top (with its studs), the front half slopes down to a small lip. Inverted: the
+    // underside slopes instead.
+    slopeGeometry(shape) {
+      const T = this.T;
+      const H = this.lh - GAP, X = 1 - GAP / 2, lip = 0.15, depth = (shape === 'slope2' ? 2 : 1) - GAP;
+      const pts = shape === 'inverted'
+        ? [[-X, 0], [0, 0], [X, H - lip], [X, H], [-X, H]]
+        : [[-X, 0], [X, 0], [X, lip], [0, H], [-X, H]];
+      const outline = new T.Shape(pts.map(([x, y]) => new T.Vector2(x, y)));
+      const g = new T.ExtrudeGeometry(outline, { depth, bevelEnabled: false });
+      g.translate(0, 0, -depth / 2);
+      return g;
+    }
+
     studGeometry() {
       const g = new this.T.CylinderGeometry(STUD_R, STUD_R, STUD_H, 14);
       g.translate(0, STUD_H / 2, 0);
@@ -238,13 +261,13 @@
       p.set(x, y, z);
       if (offset) p.set(x + offset[0], y + offset[1], z + offset[2]);
       m.compose(p, q.setFromAxisAngle(axis, tilt), one);
+      // Studs sit on the footprint's grid; a slope's body is also turned to face its way.
+      slot.studs.forEach(([dx, dz], k) => {
+        s.makeTranslation(dx + 0.5 - b.w / 2, this.lh - GAP / 2, dz + 0.5 - b.d / 2);
+        this.studs.setMatrixAt(slot.stud + k, s.premultiply(m));
+      });
+      if (b.shape) m.multiply(this.tmp.turn.makeRotationY([0, -Math.PI / 2, Math.PI, Math.PI / 2][b.dir]));
       slot.mesh.setMatrixAt(slot.index, m);
-      for (let dz = 0; dz < b.d; dz++) {
-        for (let dx = 0; dx < b.w; dx++) {
-          s.makeTranslation(dx + 0.5 - b.w / 2, this.lh - GAP / 2, dz + 0.5 - b.d / 2);
-          this.studs.setMatrixAt(slot.stud + dz * b.w + dx, s.premultiply(m));
-        }
-      }
       this.dirty = true;
     }
 
@@ -252,7 +275,7 @@
       const slot = this.slots[i];
       slot.mesh.setMatrixAt(slot.index, this.zero);
       const b = this.model.bricks[i];
-      for (let k = 0; k < b.w * b.d; k++) this.studs.setMatrixAt(slot.stud + k, this.zero);
+      for (let k = 0; k < slot.studs.length; k++) this.studs.setMatrixAt(slot.stud + k, this.zero);
       this.dirty = true;
     }
 

@@ -248,6 +248,11 @@ input[type="range"]::-moz-range-thumb {
   background: var(--c); border-radius: 2px;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
+.plate.shape-slope, .plate.shape-slope2, .plate.shape-inverted {
+  /* half flat with studs, half sloped */
+  background: linear-gradient(90deg, var(--c) 50%, color-mix(in srgb, var(--c) 70%, #fff) 50%);
+}
+.plate.shape-inverted { background: linear-gradient(90deg, var(--c) 50%, color-mix(in srgb, var(--c) 70%, #000) 50%); }
 .pcount { color: var(--muted); font-variant-numeric: tabular-nums; }
 .pbar { grid-column: 2 / 4; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .pbar i { display: block; height: 100%; width: 0; background: var(--accent); }

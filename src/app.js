@@ -11,7 +11,7 @@
     buyBox: $('buyBox'), buyParts: $('buyParts'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), up: $('up'),
-    order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'),
+    order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'), slopes: $('slopes'),
     buildCheck: $('buildCheck'), bcBadge: $('bcBadge'), bcHeadline: $('bcHeadline'), bcList: $('bcList'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
@@ -410,7 +410,7 @@
   });
   // Turning the model changes where everything is, so earlier deletions no longer line up.
   el.up.addEventListener('change', () => { state.edits = []; });
-  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles, el.baseplate]) {
+  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles, el.baseplate, el.slopes]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
@@ -490,6 +490,7 @@
     const layer = text ? L.PLATE_HEIGHT : L.BRICK_HEIGHT;
     const opts = {
       hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer, baseplate: el.baseplate.checked,
+      slopes: el.slopes.checked,
     };
     let model, check, fixes;
     try {
@@ -831,7 +832,7 @@
     for (const part of state.parts) {
       const li = document.createElement('li');
       li.innerHTML = `
-        <span class="plate" style="--c:${part.color.css}; --w:${part.c}; --h:${part.a}"></span>
+        <span class="plate${part.shape ? ` shape-${part.shape}` : ''}" style="--c:${part.color.css}; --w:${part.c}; --h:${part.a}"></span>
         <span class="pname"><b>${part.size}</b> ${part.color.name}${part.partNum
     ? ` <a class="pnum" href="${bricklinkUrl(part)}" target="_blank" rel="noopener" title="See this part on BrickLink">#${part.partNum}</a>` : ''}</span>
         <span class="pcount"></span>
@@ -878,8 +879,8 @@
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
       el.caption.textContent = next
-        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1}${sub(next)} ${next.hanging ? '(clip it on under the piece above)' : '(the glowing spot)'}`
-        : `${shown.size} ${c.name} ${m.piece}, layer ${shown.level + 1} of ${m.rows}${sub(shown)}`;
+        ? `Next: ${next.size} ${c.name}${next.pieceName === '' ? '' : ` ${m.piece}`}, layer ${next.level + 1}${sub(next)} ${next.hanging ? '(clip it on under the piece above)' : '(the glowing spot)'}`
+        : `${shown.size} ${c.name}${shown.pieceName === '' ? '' : ` ${m.piece}`}, layer ${shown.level + 1} of ${m.rows}${sub(shown)}`;
     } else {
       el.swatch.hidden = true;
       el.caption.textContent = 'Press Build to start';
@@ -1088,14 +1089,14 @@
   const BRICKLINK_UPLOAD = 'https://www.bricklink.com/v2/wanted/upload.page';
 
   function bricklinkUrl(part) {
-    return `https://www.bricklink.com/v2/catalog/catalogitem.page?P=${part.partNum}&idColor=${part.color.bricklinkId}`;
+    return `https://www.bricklink.com/v2/catalog/catalogitem.page?P=${part.bricklink || part.partNum}&idColor=${part.color.bricklinkId}`;
   }
 
   // BrickLink's Wanted List XML (part number, BrickLink colour id, quantity).
   function bricklinkXml() {
     const items = state.parts
       .filter((p) => p.partNum && p.color.bricklinkId != null)
-      .map((p) => `  <ITEM>\n    <ITEMTYPE>P</ITEMTYPE>\n    <ITEMID>${p.partNum}</ITEMID>\n` +
+      .map((p) => `  <ITEM>\n    <ITEMTYPE>P</ITEMTYPE>\n    <ITEMID>${p.bricklink || p.partNum}</ITEMID>\n` +
         `    <COLOR>${p.color.bricklinkId}</COLOR>\n    <MINQTY>${p.total}</MINQTY>\n  </ITEM>`);
     return `<INVENTORY>\n${items.join('\n')}\n</INVENTORY>\n`;
   }

@@ -248,7 +248,8 @@
   // below: which piece (index into out) fills each cell of the layer underneath, or -1.
   // bonds: optional [cellA, cellB] pairs in this layer that should end up in the same piece (the build
   // check uses them to lock a part that only touches the rest from the side).
-  function tileLayer(layer, cols, depth, level, footprints, out, made, below, bonds) {
+  // preset: pieces already chosen for this layer (slopes), placed first.
+  function tileLayer(layer, cols, depth, level, footprints, out, made, below, bonds, preset) {
     const used = new Uint8Array(cols * depth);
     const owner = new Int32Array(cols * depth).fill(-1);
     const along = level % 2 === 0;
@@ -307,6 +308,11 @@
       for (let zz = z; zz < z + d; zz++) for (let xx = x; xx < x + w; xx++) { used[zz * cols + xx] = 1; owner[zz * cols + xx] = id; }
       out.push({ x, z, level, w, d, color: c });
     };
+    if (preset) for (const p of preset) {
+      const id = out.length;
+      for (let zz = p.z; zz < p.z + p.d; zz++) for (let xx = p.x; xx < p.x + p.w; xx++) { used[zz * cols + xx] = 1; owner[zz * cols + xx] = id; }
+      out.push(p);
+    }
     // Seams to lock first: one piece straddling both cells.
     if (bonds) {
       for (const [a, b] of bonds) {
@@ -524,6 +530,7 @@
   // check uses it for hidden pieces that tie loose parts on).
   L.bricksFromVolume = function ({ cols, rows, depth, voxels }, {
     hollow = true, onlySingles = false, order = 'sweep', layer: layerHeight = L.BRICK_HEIGHT, force = null, bonds = null,
+    slopes = true,
   }) {
     // Below the bottom layer is the baseplate, which counts as solid.
     const solid = (x, level, z) => {
@@ -558,6 +565,66 @@
     const footprints = onlySingles ? [[1, 1]] : FOOTPRINTS;
     let below = null;
     const at = (x, level, z) => voxels[(level * depth + z) * cols + x];
+
+    // 45° slopes smooth the stair steps of a curved surface: where a stud's cell has open air above and
+    // beside it, and the cell behind it carries on up, a 1 × 2 slope covers both (its sloped face over
+    // the step). Under an overhang the same goes upside down, with inverted slopes. Two side by side
+    // become one 2 × 2 slope. Only in colours the slope is made in.
+    const slopeIn = (key, c) => {
+      const s = L.SLOPES && L.SLOPES[key];
+      if (!s) return false;
+      if (!s.set) s.set = new Set(s.colors);
+      return s.set.has(L.PALETTE[c].name);
+    };
+    const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // the way the slope faces (downhill)
+    function placeSlopes(layer, level) {
+      const out = [];
+      const taken = new Uint8Array(cols * depth);
+      const pick = (x, z, dir, c, shape) => {
+        const [dx, dz] = DIRS[dir];
+        const ix = x - dx, iz = z - dz; // the high cell, behind
+        out.push({
+          x: Math.min(x, ix), z: Math.min(z, iz), level, w: dx ? 2 : 1, d: dz ? 2 : 1, color: c, shape, dir,
+        });
+        taken[z * cols + x] = taken[iz * cols + ix] = 1;
+      };
+      for (let z = 0; z < depth; z++) {
+        for (let x = 0; x < cols; x++) {
+          const k = z * cols + x, c = layer[k];
+          if (c < 0 || taken[k]) continue;
+          for (let dir = 0; dir < 4; dir++) {
+            const [dx, dz] = DIRS[dir];
+            const ix = x - dx, iz = z - dz;
+            if (ix < 0 || iz < 0 || ix >= cols || iz >= depth) continue;
+            const ik = iz * cols + ix;
+            if (layer[ik] !== c || taken[ik] || solid(x + dx, level, z + dz)) continue;
+            // Step up: air above this cell, the one behind carries on up.
+            if (!solid(x, level + 1, z) && solid(ix, level + 1, iz) && slopeIn('slope12', c)) { pick(x, z, dir, c, 'slope'); break; }
+            // Step under an overhang: air below this cell, the one behind rests on something.
+            if (level > 0 && !solid(x, level - 1, z) && solid(ix, level - 1, iz) && slopeIn('inverted12', c)) { pick(x, z, dir, c, 'inverted'); break; }
+          }
+        }
+      }
+      // Pair up neighbouring 1 × 2 slopes facing the same way into 2 × 2s.
+      const merged = [];
+      const used = new Set();
+      out.forEach((a, i) => {
+        if (used.has(i)) return;
+        if (a.shape === 'slope' && slopeIn('slope22', a.color)) {
+          const [dx, dz] = DIRS[a.dir];
+          const j = out.findIndex((b, jj) => !used.has(jj) && jj !== i && b.shape === 'slope' && b.dir === a.dir && b.color === a.color &&
+            (dx ? b.x === a.x && b.z === a.z + 1 : b.z === a.z && b.x === a.x + 1));
+          if (j >= 0) {
+            used.add(i); used.add(j);
+            merged.push({ ...a, w: 2, d: 2, shape: 'slope2' });
+            return;
+          }
+        }
+        used.add(i);
+        merged.push(a);
+      });
+      return merged;
+    }
     for (let level = 0; level < rows; level++) {
       layer.fill(-1);
       for (let z = 0; z < depth; z++) {
@@ -566,7 +633,8 @@
           if (c >= 0 && keep(x, level, z)) layer[z * cols + x] = c;
         }
       }
-      below = tileLayer(layer, cols, depth, level, footprints, bricks, made, below, bonds && bonds.get(level));
+      const preset = slopes && kind === 'brick' && !onlySingles ? placeSlopes(layer, level) : null;
+      below = tileLayer(layer, cols, depth, level, footprints, bricks, made, below, bonds && bonds.get(level), preset);
     }
     ORDERS[order](bricks, cols, depth);
     bricks.forEach((b, i) => { b.step = i; });
@@ -593,18 +661,45 @@
 
   L.nearestColor = (r, g, b) => nearest(L.PALETTE, r, g, b);
 
+  // Cells of a piece's footprint (local [i, j], i along x) that are the sloped part (no stud on top for a
+  // slope; nothing underneath for an inverted slope), and the ones with a stud on top.
+  L.lowCells = function (b) {
+    if (!b.shape) return [];
+    const cells = [];
+    for (let j = 0; j < b.d; j++) for (let i = 0; i < b.w; i++) {
+      const low = b.dir === 0 ? i === b.w - 1 : b.dir === 2 ? i === 0 : b.dir === 1 ? j === b.d - 1 : j === 0;
+      if (low) cells.push([i, j]);
+    }
+    return cells;
+  };
+  L.studCells = function (b) {
+    const low = b.shape === 'slope' || b.shape === 'slope2' ? L.lowCells(b) : [];
+    const cells = [];
+    for (let j = 0; j < b.d; j++) for (let i = 0; i < b.w; i++) {
+      if (!low.some(([li, lj]) => li === i && lj === j)) cells.push([i, j]);
+    }
+    return cells;
+  };
+  const SHAPE_PART = { slope: 'slope12', slope2: 'slope22', inverted: 'inverted12' };
+  L.shapePart = (b) => (b.shape ? L.SLOPES[SHAPE_PART[b.shape]] : null);
+
   // Aggregate bricks into a parts list keyed by color + footprint.
   // kind: 'brick' or 'plate'. Each entry carries the official part number (e.g. 3001 = Brick 2 x 4).
   L.partsList = function (bricks, palette, kind = 'brick') {
     const map = new Map();
     for (const b of bricks) {
       const a = Math.min(b.w, b.d), c = Math.max(b.w, b.d);
-      const key = `${b.color}:${a}x${c}`;
+      const special = L.shapePart(b);
+      const key = `${b.color}:${b.shape || ''}${a}x${c}`;
       b.partKey = key;
-      b.size = `${a} × ${c}`;
+      b.size = special ? special.name : `${a} × ${c}`;
+      b.pieceName = special ? '' : kind;
       if (!map.has(key)) {
-        const partNum = L.PARTS ? L.PARTS[kind][`${a}x${c}`] : null;
-        map.set(key, { key, color: palette[b.color], a, c, size: b.size, kind, partNum, total: 0, placed: 0 });
+        const partNum = special ? special.partNum : L.PARTS ? L.PARTS[kind][`${a}x${c}`] : null;
+        map.set(key, {
+          key, color: palette[b.color], a, c, size: b.size, kind: special ? b.shape : kind, partNum, total: 0, placed: 0,
+          bricklink: special ? special.bricklink : partNum, shape: b.shape || null,
+        });
       }
       map.get(key).total++;
     }
