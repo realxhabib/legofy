@@ -141,7 +141,7 @@ The baseplate in the 3D view is only for display.
 ## At real size
 
 **How many at real size?** takes a real-world height and works out the brick count, dimensions, weight,
-cost and build time at that size. The **life-size Starship** sample (the full ~123 m Block 2 stack)
+cost and build time at that size. The **Starship** sample (a model of the full ~123 m Block 2 stack)
 comes out around 11 million bricks.
 
 ## How it works
