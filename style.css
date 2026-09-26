@@ -407,6 +407,9 @@ canvas:active { cursor: grabbing; }
   color: var(--stage-ink); font-size: 12px; font-weight: 600;
 }
 .view-slot:hover { border-color: var(--accent); }
+.view-slot.optional { border-style: dotted; opacity: 0.8; }
+.vs-opt { font-size: 10px; font-weight: 500; opacity: 0.75; }
+.view-slot.filled .vs-opt { display: none; }
 .vs-add { font-size: 22px; line-height: 1; font-weight: 400; }
 .view-slot.filled { border-style: solid; border-color: #fff; }
 .view-slot.filled .vs-add { display: none; }

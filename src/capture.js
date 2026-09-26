@@ -1,13 +1,15 @@
-// Guided walk-around capture: the camera asks for each side of the object in turn (front, left, back,
-// right, top) and takes one photo of each with a tap. Those photos go to the AI together, so the back
-// and sides come out as they really are.
+// Guided walk-around capture: the camera asks for the front, back and top of the object in turn and
+// takes one photo of each with a tap; the left and right sides can be added after, optionally. Those
+// photos go to the AI together, so the back comes out as it really is.
 (function (L) {
+  // Front, back and top make the model; the sides are extra (and a side shot that doesn't line up with
+  // the others can make it worse, so they're clearly optional and come last).
   const STEPS = [
     { view: 'front', name: 'Front', tip: 'Face the front of the object and fit all of it in the frame.' },
-    { view: 'left', name: 'Left side', tip: 'Walk a quarter of the way around, to its left side.' },
-    { view: 'back', name: 'Back', tip: 'Keep going round to the back.' },
-    { view: 'right', name: 'Right side', tip: 'Now its right side.' },
-    { view: 'top', name: 'Top', tip: 'Hold the phone above it, looking down.' },
+    { view: 'back', name: 'Back', tip: 'Walk round to the back and take the same shot from behind.' },
+    { view: 'top', name: 'Top', tip: 'Hold the phone above it, looking straight down.' },
+    { view: 'left', name: 'Left side', optional: true, tip: 'Optional: square on to its left side. Or tap Use these photos.' },
+    { view: 'right', name: 'Right side', optional: true, tip: 'Optional: square on to its right side. Or tap Use these photos.' },
   ];
 
   // Opens the capture screen. Resolves with { front, left?, back?, right?, top? } (canvases), or null if
@@ -42,7 +44,7 @@
 
       const show = () => {
         const s = STEPS[step];
-        $('.cap-step').textContent = `${step + 1} of ${STEPS.length} · ${s.name}${step ? ' (optional)' : ''}`;
+        $('.cap-step').textContent = s.optional ? `Extra · ${s.name} (optional)` : `${step + 1} of 3 · ${s.name}`;
         $('.cap-tip').textContent = s.tip;
         $('.cap-skip').disabled = step === 0 && !shots.front;
         $('.cap-skip').textContent = step === STEPS.length - 1 ? 'Finish' : 'Skip';

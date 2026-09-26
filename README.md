@@ -7,11 +7,11 @@ don't want, download step-by-step instructions, and order every piece.
 
 1. **Start with something:**
    - **A photo:** drop it in (JPEG, PNG or an iPhone HEIC) and press **Generate 3D model**. The AI models
-     the whole object in a minute or two. Optionally add photos of the **back, left, right and top** for
-     a more accurate back and sides.
-   - **Walk around it with the camera:** a guided capture screen asks for the front, left side, back,
-     right side and top in turn, one tap each (all but the front optional), then fills the same photo
-     slots (`src/capture.js`).
+     the whole object in a minute or two. Optionally add photos of the **back and top** (and, optionally, the
+     sides) for a more accurate model.
+   - **Walk around it with the camera:** a guided capture screen asks for the front, back and top in
+     turn, one tap each, then offers the left and right sides as optional extras, and fills the same
+     photo slots (`src/capture.js`).
    - **A 3D model:** drop in a GLB, OBJ (with its `.mtl` and texture), PLY, STL or USDZ, for example a scan
      exported from Scaniverse, Polycam or KIRI Engine. Apple's binary USDZ can't be read by browsers yet.
      If it comes in lying on its side, change **Which way is up?**.
