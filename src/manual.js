@@ -1,6 +1,7 @@
-// Printable building instructions (PDF), LEGO-manual style: a cover, a parts inventory, then numbered
-// steps. Each step shows the model so far in 3D (new pieces in full colour, earlier ones faded), a
-// top-down plan of the layer with the layer below as a guide, and the pieces that step needs.
+// Printable building instructions (PDF), LEGO-booklet style: a cover, a parts inventory with a 3D picture
+// of every piece, then numbered steps on pale blue pages. Each step has a callout of the pieces it needs,
+// the model so far in 3D (new pieces in full colour, earlier ones faded) and a top-down plan of the layer
+// with the layer below as a guide. Sub-assemblies get their own steps and a "put it on" step.
 // Everything is drawn in the browser; jsPDF (loaded on first use) assembles the file.
 (function (L) {
   const PAGE_W = 210, PAGE_H = 297, M = 12;           // A4 portrait, millimetres
@@ -45,10 +46,10 @@
     c.width = cols * cell + pad * 2;
     c.height = depth * cell + pad * 2 + cell;
     const g = c.getContext('2d');
-    g.fillStyle = '#eef1f4';
+    g.fillStyle = '#ffffff';
     g.fillRect(0, 0, c.width, c.height);
     // faint stud grid of the whole footprint
-    g.fillStyle = '#dde1e6';
+    g.fillStyle = '#e4e8ed';
     for (let z = 0; z < depth; z++) for (let x = 0; x < cols; x++) g.fillRect(pad + x * cell + cell * 0.35, pad + z * cell + cell * 0.35, cell * 0.3, cell * 0.3);
     const rect = (b) => [pad + b.x * cell, pad + b.z * cell, b.w * cell, b.d * cell];
     for (const b of below) {
@@ -121,6 +122,56 @@
     doc.text(String(page), PAGE_W - M, PAGE_H - 7, { align: 'right' });
   }
 
+  const PAGE_BG = [233, 242, 249];                     // pale blue pages, like a LEGO booklet
+
+  function pageBackground(doc) {
+    doc.setFillColor(...PAGE_BG);
+    doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
+  }
+  function panel(doc, x, y, w, h) {
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(205, 219, 230);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, w, h, 2.5, 2.5, 'FD');
+  }
+
+  // Small 3D pictures of single pieces (cached by colour and shape), on white, for the parts lists.
+  function pieceIcons(T, model) {
+    const W = 240, H = 180;
+    const canvas = document.createElement('canvas');
+    const scene = new L.Scene3D(canvas, T);
+    scene.setBackground('#f1f4f7'); // light grey, so white pieces still show
+    scene.resize(W, H);
+    scene.follow = false;
+    scene.controls.autoRotate = false;
+    const lh = model.layerHeight || L.BRICK_HEIGHT;
+    const cache = new Map();
+    return {
+      aspect: W / H,
+      // p: { color: palette index, a, c, shape }
+      get(p) {
+        const key = `${p.color}:${p.shape || ''}:${p.a}x${p.c}`;
+        if (cache.has(key)) return cache.get(key);
+        const w = p.shape ? 2 : p.c, d = p.shape ? (p.shape === 'slope2' ? 2 : 1) : p.a;
+        const piece = { x: 0, z: 0, level: 0, w, d, color: p.color, shape: p.shape || undefined, dir: 0 };
+        scene.setup({ cols: w, depth: d, rows: 1, bricks: [piece], palette: model.palette, layerHeight: lh }, { keepView: true });
+        for (const part of scene.baseplate) part.visible = false;
+        scene.showUpTo(1);
+        const radius = 0.5 * Math.hypot(w, d, lh + 0.2);
+        const fov = (scene.camera.fov * Math.PI) / 180;
+        scene.controls.target.set(0, (lh + 0.2) / 2, 0);
+        scene.camera.position.copy(new T.Vector3(0.8, 0.75, 1).normalize().multiplyScalar(radius / Math.sin(fov / 2) * 1.02))
+          .add(scene.controls.target);
+        scene.controls.update();
+        scene.render(16);
+        const url = canvas.toDataURL('image/jpeg', 0.9);
+        cache.set(key, url);
+        return url;
+      },
+      dispose() { scene.renderer.dispose(); scene.renderer.forceContextLoss(); },
+    };
+  }
+
   // model: the built model; parts: L.partsList(...); title: name for the cover.
   L.makeManual = async function ({ T, jsPDF, model, parts, title = 'Your build', onProgress = () => {} }) {
     const kind = model.piece || 'brick';
@@ -131,11 +182,10 @@
     // An off-screen copy of the 3D scene, on white, for the pictures.
     const canvas = document.createElement('canvas');
     const scene = new L.Scene3D(canvas, T);
-    scene.setBackground('#eef1f4');
+    scene.setBackground('#ffffff');
     const RW = 900, RH = 860; // about the shape of the picture boxes
     scene.resize(RW, RH);
-    scene.setup(model);
-    for (const part of scene.baseplate) part.visible = false; // not part of the kit
+    scene.setup(model, { baseplate: model.baseplate || false });
     scene.setProgress(model.rows);
     scene.resetView();
     scene.follow = false;
@@ -151,80 +201,135 @@
       scene.camera.position.copy(dir.multiplyScalar(dist)).add(scene.controls.target);
       scene.controls.update();
     }
+    // Zoom to what's built so far (like a LEGO booklet), from the same angle: fit the bounding sphere of
+    // the pieces shown, never closer than a few studs across.
+    const viewDir = new T.Vector3(0.55, 0.5, 0.68).normalize();
+    const frame = (upTo) => {
+      const lh = model.layerHeight || L.BRICK_HEIGHT;
+      const min = new T.Vector3(Infinity, Infinity, Infinity), max = new T.Vector3(-Infinity, -Infinity, -Infinity);
+      for (let k = 0; k < upTo; k++) {
+        const b = model.bricks[k];
+        const [x, y, z] = scene.brickOrigin(b);
+        min.min(new T.Vector3(x - b.w / 2, y, z - b.d / 2));
+        max.max(new T.Vector3(x + b.w / 2, y + lh, z + b.d / 2));
+      }
+      if (min.x === Infinity) return;
+      const centre = min.clone().add(max).multiplyScalar(0.5);
+      const radius = Math.max(6, 0.5 * max.distanceTo(min));
+      const fov = (scene.camera.fov * Math.PI) / 180;
+      scene.controls.target.copy(centre);
+      scene.camera.position.copy(viewDir).multiplyScalar((radius / Math.sin(fov / 2)) * 0.95).add(centre);
+      scene.controls.update();
+    };
     // pending: a sub-assembly that's built but not put on yet (it floats above its spot).
-    const snapshot = (upTo, fadeFrom, pending = 0) => {
+    const snapshot = (upTo, fadeFrom, pending = 0, background = '#f3f5f8') => {
+      scene.setBackground(background);
       scene.setLiftsAt(upTo, pending);
+      frame(upTo);
       scene.showUpTo(upTo);
       scene.fadeBefore(fadeFrom);
       scene.render(16);
       return canvas.toDataURL('image/jpeg', 0.88);
+    };
+    const icons = pieceIcons(T, model);
+    // A piece picture: 3D for bricks, plates and slopes; drawn flat for a baseplate.
+    const pieceAt = (p, colorIndex, x, y, h) => {
+      if (p.kind === 'baseplate') return drawPiece(doc, x, y + h * 0.15, 2, 3, p.color.rgb, h * 0.23);
+      const w = h * icons.aspect;
+      doc.addImage(icons.get({ color: colorIndex, a: p.a, c: p.c, shape: p.shape }), 'JPEG', x, y, w, h);
+      return w;
     };
 
     try {
       // ---------- cover ----------
       onProgress(0, 'Drawing the cover…');
       const total = model.bricks.length;
+      const colours = new Set(model.bricks.map((b) => b.color)).size;
+      const side = 74;
+      doc.setFillColor(238, 241, 244);
+      doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
+      fit(doc, snapshot(total, 0, 0, '#eef1f4'), RW, RH, side + 4, 40, PAGE_W - side - 10, 200);
+      doc.setFillColor(36, 40, 46);
+      doc.rect(0, 0, side, PAGE_H, 'F');
       doc.setFillColor(208, 16, 18);
-      doc.rect(0, 0, PAGE_W, 34, 'F');
+      doc.rect(0, 0, side, 5, 'F');
+      doc.setTextColor(170);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('BRICK MODEL OF', 10, 26);
       doc.setTextColor(255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(26);
-      doc.text(title, M, 22);
-      doc.setFontSize(10);
+      doc.setFontSize(24);
+      doc.text(doc.splitTextToSize(title, side - 18), 10, 38);
+      // yellow tag
+      doc.setFillColor(242, 205, 55);
+      doc.roundedRect(10, 70, side - 20, 14, 1.5, 1.5, 'F');
+      doc.setTextColor(30);
+      doc.setFontSize(8.5);
+      doc.text(doc.splitTextToSize('Unofficial fan-made building instructions', side - 26), 13, 76);
+      doc.setTextColor(255);
+      doc.setFontSize(22);
+      doc.text(total.toLocaleString(), 10, 106);
       doc.setFont('helvetica', 'normal');
-      doc.text('Building instructions', PAGE_W - M, 22, { align: 'right' });
-      fit(doc, snapshot(total, 0), RW, RH, M, 44, PAGE_W - 2 * M, 190);
-      doc.setTextColor(40);
-      doc.setFontSize(13);
-      doc.setFont('helvetica', 'bold');
-      const colours = new Set(model.bricks.map((b) => b.color)).size;
-      doc.text(`${total.toLocaleString()} ${model.pieces || 'bricks'} · ${colours} colours`, M, 250);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      doc.text(`${(model.cols * 0.8).toFixed(1)} × ${(model.depth * 0.8).toFixed(1)} × ${(model.rows * layerMm / 10).toFixed(1)} cm when built`, M, 258);
+      doc.setFontSize(9);
+      doc.setTextColor(200);
+      doc.text(`${model.pieces || 'bricks'} · ${colours} colours`, 10, 112);
+      doc.text(`${(model.cols * 0.8).toFixed(1)} × ${(model.depth * 0.8).toFixed(1)} × ${(model.rows * layerMm / 10).toFixed(1)} cm built`, 10, 118);
       const check = model.check;
       if (check) {
-        doc.setFontSize(10);
-        doc.setTextColor(35, 132, 61);
         const bits = [`${check.connections.toLocaleString()} stud connections`, check.collisions ? `${check.collisions} overlaps` : 'no overlaps'];
         if (check.buildable) bits.push('every step buildable');
         if (model.baseplate) bits.push('stands on a baseplate');
         else if (check.stable) bits.push('stands on its own');
-        doc.text(`Build-checked: ${bits.join(' · ')}`, M, 265);
+        doc.setFillColor(35, 132, 61);
+        doc.roundedRect(10, 128, side - 20, 8 + bits.length * 5, 1.5, 1.5, 'F');
+        doc.setTextColor(255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.text('Build-checked', 13, 134);
+        doc.setFont('helvetica', 'normal');
+        bits.forEach((t, k) => doc.text(`- ${t}`, 13, 139.5 + k * 5));
       }
-      doc.setFontSize(9);
-      doc.setTextColor(120);
-      doc.text('All pieces are real LEGO® bricks and plates in colours LEGO has produced. The parts list starts on the next page.', M, 272, { maxWidth: PAGE_W - 2 * M });
-      footer(doc, page, title);
+      if (model.assemblies && model.assemblies.length) {
+        doc.setTextColor(200);
+        doc.setFontSize(9);
+        doc.text(`${model.assemblies.length} sub-assembl${model.assemblies.length === 1 ? 'y' : 'ies'}`, 10, 170);
+      }
+      doc.setFontSize(7);
+      doc.setTextColor(150);
+      doc.text(doc.splitTextToSize('Every piece is a real LEGO® brick, plate or slope in a colour LEGO has produced. LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse these instructions.', side - 20), 10, PAGE_H - 24);
 
       // ---------- parts inventory ----------
       const drawInventory = () => {
         doc.addPage(); page++;
-        doc.setTextColor(40);
+        pageBackground(doc);
+        doc.setTextColor(30);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(18);
         doc.text('Parts you need', M, M + 8);
         footer(doc, page, title);
-        return M + 18;
+        return M + 16;
       };
       let y = drawInventory();
-      const colW = (PAGE_W - 2 * M) / 3, rowH = 21;
+      const colW = (PAGE_W - 2 * M) / 3, rowH = 22;
       parts.forEach((p, n) => {
         const col = n % 3;
         if (col === 0 && n > 0) y += rowH;
         if (y + rowH > PAGE_H - 16) y = drawInventory();
         const x = M + col * colW;
-        const unit = Math.min(4.2, 30 / p.c);
-        drawPiece(doc, x, y + 2, p.shape ? (p.shape === 'slope2' ? 2 : 1) : p.a, p.shape ? 2 : p.c, p.color.rgb, unit, p.shape);
+        panel(doc, x, y, colW - 3, rowH - 3);
+        pieceAt(p, p.color.id, x + 1.5, y + 1.5, rowH - 6);
+        const tx = x + 1.5 + (rowH - 6) * icons.aspect + 2;
         doc.setTextColor(30);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(12);
-        doc.text(`${p.total}×`, x + 36, y + 6);
+        doc.text(`${p.total}×`, tx, y + 6.5);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.text(p.shape ? p.size : `${p.a} × ${p.c} ${p.kind === 'baseplate' ? 'baseplate' : kind}`, x + 36, y + 10.5);
+        doc.setFontSize(7.5);
+        doc.text(p.shape ? p.size : `${p.a} × ${p.c} ${p.kind === 'baseplate' ? 'baseplate' : kind}`, tx, y + 11);
         doc.setTextColor(110);
-        doc.text(`${p.color.name}${p.partNum ? ` · #${p.partNum}` : ''}`, x + 36, y + 14.5);
+        doc.text(p.color.name, tx, y + 14.5);
+        if (p.partNum) doc.text(`#${p.partNum}`, tx, y + 17.5);
       });
 
       // ---------- steps ----------
@@ -243,89 +348,83 @@
       const blockH = (PAGE_H - 2 * M - 8) / 2;
       for (let s = 0; s < steps.length; s++) {
         const { start, end, level, group = 0, attach } = steps[s];
-        if (s % 2 === 0) { doc.addPage(); page++; footer(doc, page, title); }
+        if (s % 2 === 0) { doc.addPage(); page++; pageBackground(doc); footer(doc, page, title); }
         const top = M + (s % 2) * (blockH + 6);
         onProgress((s + 1) / steps.length, `Drawing step ${s + 1} of ${steps.length}…`);
         await new Promise((r) => setTimeout(r, 0));
 
+        // Pieces callout (top left, like a LEGO booklet), then the step number under it.
+        const bricks = attach ? [] : model.bricks.slice(start, end);
+        const pieces = countPieces(bricks);
+        const ICON_H = 10, cellW = ICON_H * icons.aspect + 9;
+        const perRow = Math.max(1, Math.floor((PAGE_W - 2 * M - 6) / cellW));
+        const shown = pieces.slice(0, perRow * 2);
+        const calloutRows = attach ? 0 : Math.max(1, Math.ceil(shown.length / perRow));
+        const calloutH = attach ? 0 : 4 + calloutRows * (ICON_H + 2);
+        if (!attach) {
+          const calloutW = Math.min(PAGE_W - 2 * M, 6 + Math.min(shown.length, perRow) * cellW);
+          panel(doc, M, top, calloutW, calloutH);
+          shown.forEach((p, k) => {
+            const px = M + 3 + (k % perRow) * cellW, py = top + 2 + Math.floor(k / perRow) * (ICON_H + 2);
+            const w = pieceAt({ ...p, kind: 'piece' }, p.color, px, py, ICON_H);
+            doc.setTextColor(30);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8.5);
+            doc.text(`${p.n}×`, px + w + 0.5, py + ICON_H - 1.5);
+          });
+          if (shown.length < pieces.length) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(110);
+            doc.text(`+${pieces.length - shown.length} more kinds`, M + calloutW - 3, top + calloutH - 2, { align: 'right' });
+          }
+        }
+        const numY = top + calloutH + 11;
         doc.setTextColor(20);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(26);
-        doc.text(String(s + 1), M, top + 10);
+        doc.setFontSize(24);
+        doc.text(String(s + 1), M, numY);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.setTextColor(120);
+        doc.setTextColor(90);
 
         if (attach) {
           // Put the sub-assembly on: one big picture of the model with it in place.
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(12);
           doc.setTextColor(30);
-          doc.text(`Put sub-assembly ${attach.label} on top`, M + 18, top + 9);
+          doc.text(`Put sub-assembly ${attach.label} on top`, M + 16, numY - 1);
           const w = PAGE_W - 2 * M, h = blockH - 30;
-          doc.setDrawColor(225);
-          doc.setLineWidth(0.3);
-          doc.roundedRect(M, top + 14, w, h, 2, 2, 'S');
-          fit(doc, snapshot(end, 0), RW, RH, M + 1, top + 15, w - 2, h - 2);
+          panel(doc, M, numY + 3, w, h);
+          fit(doc, snapshot(end, 0), RW, RH, M + 1, numY + 4, w - 2, h - 2);
           doc.setFillColor(255, 244, 204);
-          doc.roundedRect(M, top + 17 + h, w, 10, 2, 2, 'F');
+          doc.roundedRect(M, numY + 6 + h, w, 9, 2, 2, 'F');
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(9);
           doc.setTextColor(60);
-          doc.text(`Line sub-assembly ${attach.label} up over the studs it sits on and press it down firmly all the way round.`, M + 4, top + 23.5 + h);
+          doc.text(`Line sub-assembly ${attach.label} up over the studs it sits on and press it down firmly all the way round.`, M + 4, numY + 11.8 + h);
           continue;
         }
 
-        const bricks = model.bricks.slice(start, end);
         const lastLevel = bricks.reduce((m, b) => Math.max(m, b.level), level);
         const hanging = bricks.filter((b) => b.hanging).length;
         const label = group ? `Sub-assembly ${assemblies[group - 1].label} (build it separately) · ` : '';
         doc.text(label + (level === lastLevel ? `Layer ${level + 1} of ${model.rows}` : `Layers ${level + 1}–${lastLevel + 1} of ${model.rows}`) +
-          (hanging ? ` · clip ${hanging} ${hanging === 1 ? 'piece' : 'pieces'} on underneath` : ''), M + 18, top + 9);
+          (hanging ? ` · clip ${hanging} ${hanging === 1 ? 'piece' : 'pieces'} on underneath` : ''), M + 16, numY - 1);
 
         // The layer under this step's pieces, as far as it's built (a sub-assembly only has its own).
         const below = model.bricks.filter((b, k) => k < start && b.level === level - 1 && (!group || b.group === group));
-        const imgW = (PAGE_W - 2 * M - 6) / 2, imgH = blockH - 44;
-        doc.setDrawColor(225);
-        doc.setLineWidth(0.3);
-        doc.roundedRect(M, top + 14, imgW, imgH, 2, 2, 'S');
-        doc.roundedRect(M + imgW + 6, top + 14, imgW, imgH, 2, 2, 'S');
-        fit(doc, snapshot(end, start, group), RW, RH, M + 1, top + 15, imgW - 2, imgH - 2);
+        const imgTop = numY + 3;
+        const imgW = (PAGE_W - 2 * M - 6) / 2, imgH = top + blockH - imgTop;
+        panel(doc, M, imgTop, imgW, imgH);
+        panel(doc, M + imgW + 6, imgTop, imgW, imgH);
+        fit(doc, snapshot(end, start, group), RW, RH, M + 1, imgTop + 1, imgW - 2, imgH - 2);
         const plan = planImage(model, bricks, below);
-        fit(doc, plan.url, plan.w, plan.h, M + imgW + 7, top + 15, imgW - 2, imgH - 2);
-
-        // pieces for this step (up to two rows; a note if there are more kinds than fit)
-        const boxY = top + 16 + imgH;
-        const pieces = countPieces(bricks);
-        const layout = [];
-        let x = M + 4, row = 0;
-        for (const p of pieces) {
-          const unit = Math.min(3, 18 / p.c), w = p.c * unit;
-          if (x + w + 12 > PAGE_W - M - 22) { x = M + 4; row++; }
-          if (row > 1) break;
-          layout.push({ p, x, row, unit, w });
-          x += w + 12;
-        }
-        const rows = layout.length ? layout[layout.length - 1].row + 1 : 1;
-        doc.setFillColor(244, 246, 248);
-        doc.roundedRect(M, boxY, PAGE_W - 2 * M, 6 + rows * 10, 2, 2, 'F');
-        for (const { p, x: px, row: r, unit, w } of layout) {
-          const py = boxY + 3.5 + r * 10;
-          drawPiece(doc, px, py, p.a, p.c, model.palette[p.color].rgb, unit, p.shape);
-          doc.setTextColor(30);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
-          doc.text(`${p.n}×`, px + w + 1.5, py + 3.5);
-        }
-        if (layout.length < pieces.length) {
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(110);
-          doc.text(`+${pieces.length - layout.length} more kinds`, PAGE_W - M - 4, boxY + 8, { align: 'right' });
-        }
+        fit(doc, plan.url, plan.w, plan.h, M + imgW + 7, imgTop + 1, imgW - 2, imgH - 2);
       }
       return doc.output('blob');
     } finally {
+      icons.dispose();
       scene.renderer.dispose();
       scene.renderer.forceContextLoss();
     }
