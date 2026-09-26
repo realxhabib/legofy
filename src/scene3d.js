@@ -201,7 +201,11 @@
       const ndc = new T.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
       this.raycaster = this.raycaster || new T.Raycaster();
       this.raycaster.setFromCamera(ndc, this.camera);
-      const hit = this.raycaster.intersectObjects([...this.meshes, this.studs], false)[0];
+      // three.js caches each instanced mesh's bounds the first time they're asked for, possibly while
+      // pieces were still hidden (zero size), which would make every tap miss: refresh them.
+      const targets = [...this.meshes, this.studs];
+      for (const m of targets) m.computeBoundingSphere();
+      const hit = this.raycaster.intersectObjects(targets, false)[0];
       if (!hit) return null;
       const p = hit.point.clone().addScaledVector(this.raycaster.ray.direction, 0.3);
       return { world: hit.point, x: p.x + this.model.cols / 2, y: p.y - this.floor, z: p.z + this.model.depth / 2 };

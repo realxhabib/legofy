@@ -138,9 +138,9 @@
           <p><b>Remove parts:</b> tap the bricks you don't want. Drag to turn the model.</p>
           <div class="edit-tools">
             <div class="seg" role="radiogroup" aria-label="Eraser size">
-              <button type="button" data-brush="1.5" role="radio">S</button>
-              <button type="button" data-brush="3" role="radio" aria-checked="true">M</button>
-              <button type="button" data-brush="6" role="radio">L</button>
+              <button type="button" data-brush="0.05" role="radio" title="Small bites">S</button>
+              <button type="button" data-brush="0.1" role="radio" aria-checked="true" title="Medium bites">M</button>
+              <button type="button" data-brush="0.2" role="radio" title="Big bites">L</button>
             </div>
             <button id="editLargest" type="button" title="Delete everything that isn't attached to the main part">Keep main part</button>
             <button id="editUndo" type="button" disabled>↶ Undo</button>
@@ -157,6 +157,11 @@
           <span id="counter" class="counter"></span>
         </div>
         <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Build progress">
+        <label class="size-ctl">
+          <span>Size</span>
+          <input id="size2" type="range" min="12" max="320" step="4" value="36" aria-label="Model size (bigger means more pieces)">
+          <span class="size-out"><output id="size2Out">36</output> studs · <span id="pieceCount"></span></span>
+        </label>
         <div class="buttons">
           <div class="transport">
             <button id="restart" class="icon" title="Restart (Home)" aria-label="Restart">⏮</button>

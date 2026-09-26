@@ -18,7 +18,7 @@
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
     restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
     speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'), saveVideo: $('saveVideo'),
-    dropOverlay: $('dropOverlay'), toast: $('toast'),
+    dropOverlay: $('dropOverlay'), toast: $('toast'), size2: $('size2'), size2Out: $('size2Out'), pieceCount: $('pieceCount'),
   };
 
   const MODEL_TYPES = ['glb', 'gltf', 'obj', 'ply', 'stl', 'usdz'];
@@ -30,7 +30,7 @@
     // Bits the user deleted from the model, as a list of operations replayed on every rebuild:
     // { sphere: [x, y, z], r } in units of the model's longest side (so they survive a size change),
     // or { largest: true } to keep only the biggest connected part.
-    edits: [], editing: false, brush: 3, volumeCache: null,
+    edits: [], editing: false, brush: 0.1, volumeCache: null,
   };
 
   // If three.js never arrives (offline, blocked CDN), say so instead of silently doing nothing.
@@ -395,7 +395,10 @@
 
   // ---------- settings ----------
 
-  el.cols.addEventListener('input', () => { el.colsOut.value = el.cols.value; });
+  el.cols.addEventListener('input', () => { el.colsOut.value = el.size2Out.value = el.size2.value = el.cols.value; });
+  // The same size slider under the 3D view: drag for a bigger model with more pieces (or fewer).
+  el.size2.addEventListener('input', () => { el.cols.value = el.size2.value; el.colsOut.value = el.size2Out.value = el.cols.value; });
+  el.size2.addEventListener('change', () => { el.cols.value = el.size2.value; el.cols.dispatchEvent(new Event('change')); });
   // Text needs size: letters only read once each is several studs tall. Switching to "keep text"
   // makes the build big (and built from plates, see build()); switching back restores the old size.
   let normalSize = +el.cols.value;
@@ -520,6 +523,9 @@
     }
     state.model = model;
     state.highlight = null;
+    el.size2.value = el.cols.value;
+    el.size2Out.value = el.cols.value;
+    el.pieceCount.textContent = `${model.bricks.length.toLocaleString()} ${model.pieces}`;
     state.parts = L.partsList(model.bricks, model.palette, model.piece);
     if (model.baseplate) {
       const bp = model.baseplate, lbg = model.palette.find((c) => c.name === 'Light Bluish Gray');
@@ -642,7 +648,23 @@
   el.editReset.addEventListener('click', () => { state.edits = []; applyEdit(); });
   el.editLargest.addEventListener('click', () => applyEdit({ largest: true }));
   for (const b of el.editBar.querySelectorAll('[data-brush]')) {
-    b.addEventListener('click', () => { state.brush = +b.dataset.brush; updateEditButtons(); });
+    b.addEventListener('click', () => {
+      state.brush = +b.dataset.brush;
+      updateEditButtons();
+      // Show how big a bite that is, in the middle of the view.
+      flashBrush(state.scene.controls.target, 900);
+    });
+  }
+
+  // Eraser sizes are a share of the model (S 5%, M 10%, L 20% of its longest side), so they bite the same
+  // amount at any size.
+  const brushStuds = () => Math.max(1.5, state.brush * +el.cols.value);
+  let flashTimer;
+  function flashBrush(at, ms) {
+    if (!state.scene) return;
+    state.scene.setBrush(at.clone ? at.clone() : at, brushStuds());
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => state.scene.setBrush(null), ms);
   }
 
   // A tap (not a drag, which turns the view) removes a ball of bricks around the spot.
@@ -656,15 +678,15 @@
     const hit = state.scene.pick(e.clientX, e.clientY);
     if (!hit) return;
     const size = +el.cols.value;
-    applyEdit({ sphere: [hit.x / size, hit.y / size, hit.z / size], r: state.brush / size });
-    if (e.pointerType === 'mouse') showBrush(e);
+    applyEdit({ sphere: [hit.x / size, hit.y / size, hit.z / size], r: brushStuds() / size });
+    if (e.pointerType === 'mouse') showBrush(e); else flashBrush(hit.world, 500);
   });
   // Mouse users see the eraser before clicking.
   let brushFrame = 0;
   function showBrush(e) {
     if (!state.editing || e.pointerType !== 'mouse' || e.buttons) { state.scene?.setBrush(null); return; }
     const hit = state.scene.pick(e.clientX, e.clientY);
-    state.scene.setBrush(hit && hit.world, state.brush);
+    state.scene.setBrush(hit && hit.world, brushStuds());
   }
   el.canvas.addEventListener('pointermove', (e) => {
     if (!state.editing || brushFrame) return;

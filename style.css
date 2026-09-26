@@ -328,6 +328,11 @@ canvas:active { cursor: grabbing; }
   box-shadow: var(--shadow); padding: 12px 16px 14px;
 }
 .now { display: flex; align-items: center; gap: 10px; min-height: 24px; }
+.size-ctl { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.size-ctl > span:first-child { font-weight: 600; color: var(--ink); }
+.size-ctl input { flex: 1; min-width: 80px; }
+.size-out { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.size-out output { font-weight: 700; color: var(--ink); }
 .swatch { width: 20px; height: 20px; border-radius: 5px; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.15); flex: none; }
 #caption { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .counter {
