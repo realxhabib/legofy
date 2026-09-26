@@ -6,7 +6,7 @@
     sample: $('sample'), sample3d: $('sample3d'), sampleStarship: $('sampleStarship'),
     notice: $('notice'), scanBtn: $('scanBtn'), ai3dBtn: $('ai3dBtn'), ai3dTextured: $('ai3dTextured'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
-    cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
+    cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
     order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
@@ -411,13 +411,27 @@
 
   el.cols.addEventListener('input', () => { el.colsOut.value = el.cols.value; });
   el.thick.addEventListener('input', () => { el.thickOut.value = `${el.thick.value}%`; });
-  for (const input of [el.cols, el.thick, el.up, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
+  // Text needs size: letters only read once each is several studs tall. Switching to "keep text"
+  // makes the build big (and built from plates, see build()); switching back restores the old size.
+  let normalSize = +el.cols.value;
+  el.detail.addEventListener('change', () => {
+    if (el.detail.value === 'text') {
+      normalSize = +el.cols.value;
+      el.cols.value = Math.min(+el.cols.max, Math.max(normalSize, 96));
+    } else {
+      el.cols.value = normalSize;
+    }
+    el.colsOut.value = el.cols.value;
+  });
+  for (const input of [el.detail, el.cols, el.thick, el.up, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
   function build(autoplay) {
     if (!state.source || !state.scene) return;
-    const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value };
+    const text = el.detail.value === 'text';
+    const layer = text ? L.PLATE_HEIGHT : L.BRICK_HEIGHT;
+    const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer };
     try {
       const { kind } = state.source;
       state.model = kind === 'image' || kind === 'spatial'
@@ -428,10 +442,13 @@
           removeBackground: el.removeBg.checked,
           dither: el.dither.checked,
           relief: state.source.relief || null,
+          layer,
         })
         : L.bricksFromVolume(kind === 'scan'
-          ? state.source.carver.volume({ size: +el.cols.value })
-          : L.voxelizeModel(state.T, state.source.root, { size: +el.cols.value, up: el.up.value }), shared);
+          ? state.source.carver.volume({ size: +el.cols.value, layer })
+          : L.voxelizeModel(state.T, state.source.root, {
+            size: +el.cols.value, up: el.up.value, layer, maxTexture: text ? 2048 : 1024,
+          }), shared);
     } catch (err) {
       console.error(err);
       notice(`Couldn't build that: ${err.message || err}`, true);
@@ -576,8 +593,8 @@
     }
     const colors = new Set(state.model.bricks.map((b) => b.color)).size;
     el.partsSummary.textContent =
-      `${state.model.bricks.length.toLocaleString()} bricks · ${colors} colors · ` +
-      `${state.model.cols} × ${state.model.depth} studs, ${state.model.rows} bricks tall`;
+      `${state.model.bricks.length.toLocaleString()} ${state.model.pieces} · ${colors} colors · ` +
+      `${state.model.cols} × ${state.model.depth} studs, ${state.model.rows} ${state.model.pieces} tall`;
   }
 
   function updateUi(now) {
@@ -598,13 +615,13 @@
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
       el.caption.textContent = next
-        ? `Next: ${next.size} ${c.name} brick, layer ${next.level + 1} (the glowing spot)`
-        : `${shown.size} ${c.name} brick, layer ${shown.level + 1} of ${m.rows}`;
+        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1} (the glowing spot)`
+        : `${shown.size} ${c.name} ${m.piece}, layer ${shown.level + 1} of ${m.rows}`;
     } else {
       el.swatch.hidden = true;
       el.caption.textContent = 'Press Build to start';
     }
-    if (state.placed === total && !state.active.length) el.caption.textContent = 'Done! Every brick is in place.';
+    if (state.placed === total && !state.active.length) el.caption.textContent = `Done! Every ${m.piece} is in place.`;
 
     for (const { part, li, count, bar } of state.partEls.values()) {
       count.textContent = `${part.placed}/${part.total}`;
@@ -616,7 +633,7 @@
 
   // ---------- real-size estimate ----------
 
-  const BRICK_TALL_M = 0.0096, STUD_M = 0.008;
+  const STUD_M = 0.008;
 
   function formatCount(n) {
     if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} billion`;
@@ -647,40 +664,43 @@
   function renderLifeSize() {
     const m = state.model;
     if (!m) { el.life.hidden = true; return; }
-    const modelHeight = m.rows * BRICK_TALL_M;
+    const layerM = (m.layerHeight || L.BRICK_HEIGHT) * STUD_M; // 9.6 mm a brick, 3.2 mm a plate
+    const modelHeight = m.rows * layerM;
     // Until someone types a height, show the build at its own real size.
     const height = state.source.realHeight || modelHeight;
     if (document.activeElement !== el.realHeight) el.realHeight.value = +height.toFixed(3);
     const k = +(height / modelHeight).toFixed(6);
     const hollow = el.hollow.checked;
     const studCells = m.bricks.reduce((n, b) => n + b.w * b.d, 0);
+    // Cells are brick-sized, or a third of that in plate mode: convert to brick-sized cells.
+    const perBrick = (m.layerHeight || L.BRICK_HEIGHT) / L.BRICK_HEIGHT;
 
     let bricks, cells, how;
     if (k <= 2) {
       bricks = m.bricks.length * k ** (hollow ? 2 : 3);
-      cells = studCells * k ** (hollow ? 2 : 3);
+      cells = studCells * perBrick * k ** (hollow ? 2 : 3);
       how = k === 1 ? 'Exactly this build.' : 'This build, scaled.';
     } else if (hollow) {
-      cells = m.stats.shellVoxels * k * k * 2;
+      cells = m.stats.shellVoxels * perBrick * k * k * 2;
       bricks = cells / 8;
       how = 'Estimate: a hollow shell 2 studs thick, built from 2×4 bricks.';
     } else {
-      cells = m.stats.solidVoxels * k ** 3;
+      cells = m.stats.solidVoxels * perBrick * k ** 3;
       bricks = cells / 8;
       how = 'Estimate: solid all the way through, built from 2×4 bricks.';
     }
     const grams = cells * 0.29;       // a 2×4 brick is ~2.3 g for its 8 stud-cells
     const dollars = bricks * 0.1;     // roughly 10¢ per brick
     const rows = [
-      ['Bricks', `≈ ${formatCount(bricks)}`, 'big'],
+      [k <= 2 ? m.pieces[0].toUpperCase() + m.pieces.slice(1) : 'Bricks', `≈ ${formatCount(bricks)}`, 'big'],
       ['Size', `${formatLength(m.cols * k * STUD_M)} × ${formatLength(m.depth * k * STUD_M)} × ${formatLength(height)} tall`],
-      ['Rows of bricks', formatCount(height / BRICK_TALL_M)],
+      [`Rows of ${m.pieces}`, formatCount(height / layerM)],
       ['Weight', `≈ ${formatMass(grams)}`],
       ['Cost', `≈ $${formatCount(dollars)} at ~10¢ a brick`],
       ['Build time', `${formatDuration(bricks)} at one brick a second, nonstop`],
     ];
     el.lifeStats.innerHTML = rows.map(([t, d, cls]) => `<dt>${t}</dt><dd class="${cls || ''}">${d}</dd>`).join('');
-    el.lifeNote.textContent = `${how} Based on the shape above (${m.rows} bricks tall), scaled ${k >= 10 ? Math.round(k).toLocaleString() : k.toFixed(2)}×.`;
+    el.lifeNote.textContent = `${how} Based on the shape above (${m.rows} ${m.pieces} tall), scaled ${k >= 10 ? Math.round(k).toLocaleString() : k.toFixed(2)}×.`;
     el.life.hidden = false;
   }
 

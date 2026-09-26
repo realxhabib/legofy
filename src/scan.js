@@ -565,7 +565,7 @@
     }
 
     // Resample the carved shape onto a LEGO grid whose longest side is `size` studs.
-    volume({ size = 36 } = {}) {
+    volume({ size = 36, layer = L.BRICK_HEIGHT } = {}) {
       if (!this.views.length) throw new Error('Nothing scanned yet.');
       const solid = this.occupancy();
       let x0 = G, x1 = -1, y0 = G, y1 = -1, z0 = G, z1 = -1;
@@ -591,12 +591,12 @@
       const s = ext / size; // world units per stud
       const cols = Math.max(1, Math.round(((x1 - x0 + 1) * this.step) / s));
       const depth = Math.max(1, Math.round(((z1 - z0 + 1) * this.step) / s));
-      const rows = Math.max(1, Math.round(((y1 - y0 + 1) * this.step) / (s * L.BRICK_HEIGHT)));
+      const rows = Math.max(1, Math.round(((y1 - y0 + 1) * this.step) / (s * layer)));
       const voxels = new Int16Array(cols * rows * depth).fill(-1);
       const filled = new Uint8Array(voxels.length);
       const toCarve = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.floor(v)));
       for (let level = 0; level < rows; level++) {
-        const gy = toCarve(y0 + ((level + 0.5) * s * L.BRICK_HEIGHT) / this.step, y0, y1);
+        const gy = toCarve(y0 + ((level + 0.5) * s * layer) / this.step, y0, y1);
         for (let z = 0; z < depth; z++) {
           const gz = toCarve(z0 + ((z + 0.5) * s) / this.step, z0, z1);
           for (let x = 0; x < cols; x++) {

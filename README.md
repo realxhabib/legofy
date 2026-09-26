@@ -109,6 +109,14 @@ To turn it on, create a key at fal.ai, then in Vercel open **Settings → Enviro
 colours (the default, since bricks need colours). Anyone who can open your site can spend credits this
 way, so set a spending limit in your fal account.
 
+## Keeping text readable
+
+**Detail → Keep text & fine detail** builds from plates (a third of a brick tall, so three times the
+vertical resolution), reads textures at up to 2048 px, and bumps the size to at least 96 studs, since a
+letter only reads once it is several studs tall. A 12 cm can at 96 studs gets its logo letters about 13
+studs tall; small print needs more size (3D models and scans go up to 320). Switching back to Normal
+restores the previous size. It's a lot of pieces (a can is ~16,000 plates), so turn up the build speed.
+
 ## At real size
 
 Under the settings, **At real size** takes a real-world height and works out what it would take to build

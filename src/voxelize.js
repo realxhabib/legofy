@@ -8,9 +8,7 @@
     x: [0, 0, Math.PI / 2], '-x': [0, 0, -Math.PI / 2],
   };
 
-  const MAX_TEXTURE = 1024;
-
-  function texturePixels(texture, cache) {
+  function texturePixels(texture, cache, maxTexture = 1024) {
     if (cache.has(texture)) return cache.get(texture);
     let result = null;
     const img = texture.image;
@@ -18,7 +16,7 @@
       if (img && img.data && img.width && img.data.length === img.width * img.height * 4) {
         result = { data: img.data, w: img.width, h: img.height };
       } else if (img && img.width) {
-        const scale = Math.min(1, MAX_TEXTURE / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxTexture / Math.max(img.width, img.height));
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.round(img.width * scale));
         c.height = Math.max(1, Math.round(img.height * scale));
@@ -33,7 +31,9 @@
     return result;
   }
 
-  L.voxelizeModel = function (T, root, { size = 36, up = 'y' } = {}) {
+  // layer: height of one layer in studs (1.2 bricks, 0.4 plates); maxTexture: how much texture detail to
+  // read (text on a label needs more).
+  L.voxelizeModel = function (T, root, { size = 36, up = 'y', layer = L.BRICK_HEIGHT, maxTexture = 1024 } = {}) {
     root.updateMatrixWorld(true);
     const rot = new T.Matrix4().makeRotationFromEuler(new T.Euler(...(UP[up] || UP.y)));
 
@@ -61,7 +61,7 @@
     const scale = size / Math.max(ext.x, ext.y, ext.z, 1e-6);
     const cols = Math.max(1, Math.floor(ext.x * scale) + 1);
     const depth = Math.max(1, Math.floor(ext.z * scale) + 1);
-    const rows = Math.max(1, Math.floor((ext.y * scale) / L.BRICK_HEIGHT) + 1);
+    const rows = Math.max(1, Math.floor((ext.y * scale) / layer) + 1);
     const N = cols * rows * depth;
     // Each voxel keeps a running majority vote over the LEGO colors of its samples (Boyer-Moore),
     // so a seam between two colors stays crisp instead of averaging into a third color.
@@ -77,7 +77,7 @@
 
     const toGrid = (wx, wy, wz, out) => {
       out[0] = (wx - min.x) * scale;
-      out[1] = ((wy - min.y) * scale) / L.BRICK_HEIGHT;
+      out[1] = ((wy - min.y) * scale) / layer;
       out[2] = (wz - min.z) * scale;
       return out;
     };
@@ -114,7 +114,7 @@
         color.getRGB(color, T.SRGBColorSpace);
         rgb[0] = color.r * 255; rgb[1] = color.g * 255; rgb[2] = color.b * 255;
         const tex = mat?.map;
-        const px = tex && uvAttr && texturePixels(tex, textures);
+        const px = tex && uvAttr && texturePixels(tex, textures, maxTexture);
         if (px) {
           uv.set(
             uvAttr.getX(a) * wa + uvAttr.getX(b) * wb + uvAttr.getX(c) * wc,

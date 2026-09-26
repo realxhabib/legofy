@@ -8,6 +8,8 @@
   ];
   // A brick is 9.6mm tall and a stud 8mm wide.
   L.BRICK_HEIGHT = 1.2;
+  // Plates are a third of a brick: building in plates triples the vertical detail (for text).
+  L.PLATE_HEIGHT = 0.4;
 
   // Downscale in halving steps so small grids still average the whole source image.
   function resize(img, cols, rows) {
@@ -201,7 +203,7 @@
   // Half-thickness (in studs) of the solid at every pixel. Each pixel's distance to the silhouette
   // edge d (in real units, bricks are taller than studs) maps onto a sphere profile sqrt(2Rd - d²),
   // so a disc becomes a ball and thin parts stay slim. The bottom edge counts as solid ground.
-  function inflate(grid, cols, rows, thickness) {
+  function inflate(grid, cols, rows, thickness, layer) {
     const half = new Int16Array(cols * rows);
     if (thickness <= 0) return half;
     const outside = [];
@@ -213,7 +215,7 @@
           const nx = x + dx, ny = y + dy;
           return nx >= 0 && nx < cols && ny >= 0 && ny < rows && grid[ny * cols + nx] >= 0;
         });
-        if (touches) outside.push([x, y * L.BRICK_HEIGHT]);
+        if (touches) outside.push([x, y * layer]);
       }
     }
     const dist = new Float32Array(cols * rows);
@@ -222,7 +224,7 @@
       for (let x = 0; x < cols; x++) {
         if (grid[y * cols + x] < 0) continue;
         let d = Infinity;
-        const py = y * L.BRICK_HEIGHT;
+        const py = y * layer;
         for (const [ox, oy] of outside) d = Math.min(d, Math.hypot(ox - x, oy - py));
         d = Math.max(0, d - 0.5);
         dist[y * cols + x] = d;
@@ -352,11 +354,11 @@
   // inflated, and the hidden back is mirrored about the silhouette's depth (a ball stays a ball).
   L.buildSculpture = function (img, {
     cols: width, thickness = 0.5, removeBackground = true, hollow = true, dither = false, onlySingles = false,
-    order = 'sweep', relief = null,
+    order = 'sweep', relief = null, layer = L.BRICK_HEIGHT,
   }) {
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
-    const fullRows = Math.max(1, Math.round((width * ih) / iw / L.BRICK_HEIGHT));
+    const fullRows = Math.max(1, Math.round((width * ih) / iw / layer));
     const palette = L.PALETTE;
     const pixels = resize(img, width, fullRows);
     const lab = [];
@@ -384,9 +386,9 @@
     const { grid, cols, rows, x0, y0 } = crop(colors, width, fullRows);
     if (relief) {
       return L.bricksFromVolume(reliefVolume(grid, cols, rows, cellDist, width, x0, y0, iw / width, relief.f),
-        { hollow, onlySingles, order });
+        { hollow, onlySingles, order, layer });
     }
-    const half = inflate(grid, cols, rows, thickness);
+    const half = inflate(grid, cols, rows, thickness, layer);
 
     let maxHalf = 0;
     for (let i = 0; i < half.length; i++) maxHalf = Math.max(maxHalf, half[i]);
@@ -403,7 +405,7 @@
         }
       }
     }
-    return L.bricksFromVolume(volume, { hollow, onlySingles, order });
+    return L.bricksFromVolume(volume, { hollow, onlySingles, order, layer });
   };
 
   // Front surface from measured depth, back mirrored about the silhouette's depth.
@@ -457,7 +459,9 @@
   }
 
   // Solid color volume -> bricks. voxels[(level * depth + z) * cols + x] is a palette index or -1.
-  L.bricksFromVolume = function ({ cols, rows, depth, voxels }, { hollow = true, onlySingles = false, order = 'sweep' }) {
+  L.bricksFromVolume = function ({ cols, rows, depth, voxels }, {
+    hollow = true, onlySingles = false, order = 'sweep', layer: layerHeight = L.BRICK_HEIGHT,
+  }) {
     // Below the bottom layer is the baseplate, which counts as solid.
     const solid = (x, level, z) => {
       if (level < 0) return true;
@@ -497,7 +501,12 @@
         }
       }
     }
-    return { cols, rows, depth, bricks, palette: L.PALETTE, stats: { solidVoxels, shellVoxels } };
+    // layerHeight: 1.2 for bricks, 0.4 for plates (studs units); piece: what to call each part.
+    const plates = layerHeight < L.BRICK_HEIGHT;
+    return {
+      cols, rows, depth, bricks, palette: L.PALETTE, stats: { solidVoxels, shellVoxels },
+      layerHeight, piece: plates ? 'plate' : 'brick', pieces: plates ? 'plates' : 'bricks',
+    };
   };
 
   L.nearestColor = (r, g, b) => nearest(L.PALETTE, r, g, b);

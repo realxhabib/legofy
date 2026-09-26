@@ -66,7 +66,9 @@
       this.world.clear();
 
       const { cols, rows, depth, bricks } = model;
-      this.height = rows * L.BRICK_HEIGHT;
+      this.lh = model.layerHeight || L.BRICK_HEIGHT; // 1.2 bricks, 0.4 plates
+      this.height = rows * this.lh;
+      this.ghost.scale.y = this.lh / L.BRICK_HEIGHT;
 
       // Baseplate: a couple of studs of border around the sculpture.
       const bw = cols + 4, bd = depth + 4;
@@ -100,7 +102,7 @@
       const meshes = new Map();
       for (const [shape, count] of byShape) {
         const [w, d] = shape.split('x').map(Number);
-        const mesh = new T.InstancedMesh(this.boxGeometry(w - GAP, L.BRICK_HEIGHT - GAP, d - GAP), this.material, count);
+        const mesh = new T.InstancedMesh(this.boxGeometry(w - GAP, this.lh - GAP, d - GAP), this.material, count);
         mesh.castShadow = mesh.receiveShadow = true;
         mesh.frustumCulled = false;
         mesh.userData.next = 0;
@@ -150,7 +152,7 @@
 
     brickOrigin(b) {
       const { cols, depth } = this.model;
-      return [b.x + b.w / 2 - cols / 2, PLATE_H + b.level * L.BRICK_HEIGHT, b.z + b.d / 2 - depth / 2];
+      return [b.x + b.w / 2 - cols / 2, PLATE_H + b.level * this.lh, b.z + b.d / 2 - depth / 2];
     }
 
     // Pose one brick: lift = height above its final spot, tilt = rotation in radians.
@@ -163,7 +165,7 @@
       slot.mesh.setMatrixAt(slot.index, m);
       for (let dz = 0; dz < b.d; dz++) {
         for (let dx = 0; dx < b.w; dx++) {
-          s.makeTranslation(dx + 0.5 - b.w / 2, L.BRICK_HEIGHT - GAP / 2, dz + 0.5 - b.d / 2);
+          s.makeTranslation(dx + 0.5 - b.w / 2, this.lh - GAP / 2, dz + 0.5 - b.d / 2);
           this.studs.setMatrixAt(slot.stud + dz * b.w + dx, s.premultiply(m));
         }
       }
@@ -198,8 +200,8 @@
       const b = this.model.bricks[i];
       const [x, y, z] = this.brickOrigin(b);
       this.ghost.visible = true;
-      this.ghost.scale.set(b.w, 1, b.d);
-      this.ghost.position.set(x, y + L.BRICK_HEIGHT / 2, z);
+      this.ghost.scale.set(b.w, this.lh / L.BRICK_HEIGHT, b.d);
+      this.ghost.position.set(x, y + this.lh / 2, z);
       const pulse = 0.5 + 0.5 * Math.sin(now / 180);
       this.ghost.material.color.set(this.model.palette[b.color].css);
       this.ghost.material.opacity = 0.2 + 0.35 * pulse;
@@ -208,7 +210,7 @@
 
     // Where the camera looks: the middle of what has been built so far (never below a third of the way up).
     focusTarget() {
-      const h = Math.max(this.builtRows, 4, this.model.rows / 3) * L.BRICK_HEIGHT;
+      const h = Math.max(this.builtRows, 4, this.model.rows / 3) * this.lh;
       return new this.T.Vector3(0, PLATE_H + h * 0.5, 0);
     }
 
