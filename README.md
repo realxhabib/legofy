@@ -91,6 +91,9 @@ with the bigger of the two. The bottom section is built in place; each separate 
 (two arms, a head) is its own sub-assembly, built on its own from its bottom layer up, then put on. In the
 3D view it's built hovering above its spot and then lowered into place; ▶ steps through "put it on" as
 one step. The instructions get "Sub-assembly A" steps and a "Put sub-assembly A on top" step.
+Only at a real narrowing (the joint has at most half the studs of the bigger layer), so a plain can or
+box is built in one go. A yellow label on the 3D view says when a section is being built in the air, and
+**Build sections separately** in the settings turns it off.
 
 ## Stripe (to do)
 

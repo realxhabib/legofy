@@ -295,6 +295,7 @@
     const cuts = [];
     for (const c of candidates) {
       if (cuts.length >= sections - 1) break;
+      if (c.score > 0.5) break; // only at a real narrowing: no sub-assemblies for a plain can or box
       if (cuts.every((k) => Math.abs(k - c.at) >= minH)) cuts.push(c.at);
     }
     if (!cuts.length) return model;

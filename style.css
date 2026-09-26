@@ -282,6 +282,12 @@ canvas:active { cursor: grabbing; }
   background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 12px; white-space: nowrap;
   pointer-events: none; backdrop-filter: blur(6px);
 }
+.sub-badge {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2;
+  margin: 0; padding: 6px 14px; border-radius: 999px; width: max-content; max-width: calc(100% - 24px);
+  background: rgba(242, 205, 55, 0.95); color: #1b2a34; font-size: 13px; font-weight: 600;
+  text-align: center; pointer-events: none; box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.4);
+}
 .empty { text-align: center; color: color-mix(in srgb, var(--stage-ink) 80%, transparent); padding: 32px 24px; max-width: 520px; }
 .empty h2 { margin: 6px 0 8px; color: var(--stage-ink); font: 900 30px/1.15 Nunito, Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
 .empty p { margin: 0 auto; font-size: 15px; max-width: 44ch; }

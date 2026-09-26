@@ -11,7 +11,7 @@
     buyBox: $('buyBox'), buyParts: $('buyParts'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), up: $('up'),
-    order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'), slopes: $('slopes'),
+    order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'), slopes: $('slopes'), subAssemblies: $('subAssemblies'), subBadge: $('subBadge'),
     buildCheck: $('buildCheck'), bcBadge: $('bcBadge'), bcHeadline: $('bcHeadline'), bcList: $('bcList'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
@@ -60,6 +60,8 @@
       throw err;
     }
     L._scene = state.scene; // for automated tests
+    // Phones and tablets: touch wording for the orbit hint.
+    if (window.matchMedia && matchMedia('(pointer: coarse)').matches) el.hint.textContent = 'Drag to turn · pinch to zoom';
     state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
     // The orbit hint has done its job once someone drags the view.
     state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
@@ -414,7 +416,7 @@
   });
   // Turning the model changes where everything is, so earlier deletions no longer line up.
   el.up.addEventListener('change', () => { state.edits = []; });
-  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles, el.baseplate, el.slopes]) {
+  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles, el.baseplate, el.slopes, el.subAssemblies]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
@@ -508,7 +510,7 @@
         model.bricks.forEach((b, i) => { b.step = i; });
       }
       // Sub-assemblies built separately and put on, like a real set.
-      L.planAssemblies(model);
+      if (el.subAssemblies.checked) L.planAssemblies(model); else model.assemblies = [];
       check.hanging = model.bricks.filter((b) => b.hanging).length;
       if (opts.baseplate) model.baseplate = L.chooseBaseplate(model);
       model.check = check;
@@ -872,7 +874,23 @@
       `${formatLength(state.model.rows * (state.model.layerHeight || L.BRICK_HEIGHT) * STUD_M)} tall`;
   }
 
-  const sub = (b) => (b.group ? `, sub-assembly ${state.model.assemblies[b.group - 1].label}` : '');
+  const sub = () => '';
+
+  // A label on the 3D view while a sub-assembly is being built in the air, so it doesn't look broken.
+  function updateSubBadge(due) {
+    const m = state.model, sc = state.scene;
+    let text = '';
+    if (state.assembling) text = `Putting sub-assembly ${state.assembling.a.label} on…`;
+    else if (due) text = `Sub-assembly ${due.label} is ready: press ▶ to put it on`;
+    else {
+      const last = state.placed ? m.bricks[state.placed - 1] : null;
+      if (last && last.group && sc.lifts[last.group] > 0) {
+        text = `Sub-assembly ${m.assemblies[last.group - 1].label}: built separately, then lowered on`;
+      }
+    }
+    el.subBadge.textContent = text;
+    el.subBadge.hidden = !text;
+  }
 
   function updateUi(now) {
     state.lastUi = now;
@@ -882,6 +900,7 @@
     el.scrub.value = state.placed;
     el.counter.textContent = `${state.placed.toLocaleString()} / ${total.toLocaleString()}`;
     const due = dueAssembly();
+    updateSubBadge(due);
     el.play.textContent = state.playing ? '❚❚ Pause'
       : state.placed >= total && !due ? '↻ Build again' : state.placed ? '▶ Resume' : '▶ Build';
 

@@ -91,6 +91,7 @@
           <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer pieces)</label>
           <label class="check"><input id="singles" type="checkbox"> 1 × 1 pieces only</label>
           <label class="check"><input id="slopes" type="checkbox" checked> Smooth curves with slopes</label>
+          <label class="check"><input id="subAssemblies" type="checkbox" checked> Build sections separately, then put them on (like a LEGO set)</label>
           <label class="check"><input id="baseplate" type="checkbox"> Build on a baseplate (holds the bottom together)</label>
         </div>
       </section>
@@ -133,6 +134,7 @@
           <p id="emptyStatus" class="empty-status" hidden></p>
         </div>
         <canvas id="canvas" hidden></canvas>
+        <p id="subBadge" class="sub-badge" hidden></p>
         <p id="hint" class="hint" hidden>Drag to orbit · scroll to zoom · right-drag to pan</p>
         <div id="editBar" class="edit-bar" hidden>
           <p><b>Remove parts:</b> tap the bricks you don't want. Drag to turn the model.</p>
