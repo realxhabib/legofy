@@ -577,9 +577,11 @@
       return s.set.has(L.PALETTE[c].name);
     };
     const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // the way the slope faces (downhill)
-    function placeSlopes(layer, level) {
+    // keepFree: cells saved for seam-locking pieces (the build check's bonds), which come first.
+    function placeSlopes(layer, level, keepFree) {
       const out = [];
       const taken = new Uint8Array(cols * depth);
+      if (keepFree) for (const [a, b] of keepFree) taken[a] = taken[b] = 1;
       const pick = (x, z, dir, c, shape) => {
         const [dx, dz] = DIRS[dir];
         const ix = x - dx, iz = z - dz; // the high cell, behind
@@ -633,7 +635,7 @@
           if (c >= 0 && keep(x, level, z)) layer[z * cols + x] = c;
         }
       }
-      const preset = slopes && kind === 'brick' && !onlySingles ? placeSlopes(layer, level) : null;
+      const preset = slopes && kind === 'brick' && !onlySingles ? placeSlopes(layer, level, bonds && bonds.get(level)) : null;
       below = tileLayer(layer, cols, depth, level, footprints, bricks, made, below, bonds && bonds.get(level), preset);
     }
     ORDERS[order](bricks, cols, depth);

@@ -512,7 +512,7 @@
       // Sub-assemblies built separately and put on, like a real set.
       if (el.subAssemblies.checked) L.planAssemblies(model); else model.assemblies = [];
       check.hanging = model.bricks.filter((b) => b.hanging).length;
-      if (opts.baseplate) model.baseplate = L.chooseBaseplate(model);
+      if (opts.baseplate || fixes.autoBaseplate) model.baseplate = L.chooseBaseplate(model);
       model.check = check;
       model.fixes = fixes;
     } catch (err) {
@@ -585,7 +585,9 @@
     } else {
       row('ok', '<b>No weak spots</b> hanging on a single stud');
     }
-    if (f.specks) row('info', `Left out ${f.specks} tiny loose ${f.specks === 1 ? 'bit' : 'bits'} that couldn't attach to anything`);
+    const left = (f.specks || 0) + (f.removed || 0);
+    if (left) row('info', `Left out ${left} loose ${left === 1 ? 'piece' : 'pieces'} that couldn't attach to anything, so every piece connects`);
+    if (f.autoBaseplate) row('info', 'Added a baseplate to hold the separate parts together');
 
     const issues = rows.filter((r) => r.ok === 'bad' || r.ok === 'warn').length;
     const bad = rows.some((r) => r.ok === 'bad');

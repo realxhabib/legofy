@@ -62,8 +62,9 @@ it; pieces side by side in one layer aren't joined. From that graph:
 - **Loose parts get tied on:** a part that doesn't connect to the main one gets hidden supports: a
   two-stud column through the solid inside, up or down to the main part. If there's no inside route,
   a stud on the other side of a side-by-side seam takes the part's colour and one piece straddles it.
-  Specks of up to 4 pieces that still can't attach are left out; anything bigger is reported, with
-  **Show** and **Remove them**.
+- **Every piece connects, always:** parts standing next to the model (two objects side by side) get a
+  baseplate that ties them together; anything that still can't attach is left out, and the check panel
+  says how many pieces that was.
 - **Every step buildable:** the chosen build order is kept, but a piece with nothing under it yet
   waits and goes in right after the piece above it, clipped on underneath (the steps say so).
 - **Stands up:** the centre of mass must be over the bottom layer's footprint, or it's flagged with

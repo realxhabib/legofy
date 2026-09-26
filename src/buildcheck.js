@@ -173,7 +173,7 @@
     const bonds = new Map(); // level -> [[cellA, cellB], ...]
     let model, check, hidden = 0, recoloured = 0;
     const MAX_SPECK = 4; // pieces
-    for (let round = 0; round < 8; round++) {
+    for (let round = 0; round < 12; round++) {
       model = L.bricksFromVolume({ ...volume, voxels }, { ...opts, force, bonds });
       check = L.checkBuild(model, opts);
       const loose = [...check.floating, ...check.separate];
@@ -250,7 +250,12 @@
       }
       if (!added) break;
     }
-    // Leave out specks that still float or stand apart.
+    // Every piece has to connect. What still doesn't:
+    // - tiny specks (a lone stud of colour on an edge) are left out: they'd just fall off;
+    // - bigger parts that stand on the table next to the model (two objects side by side) are tied
+    //   together with a baseplate under them all;
+    // - anything else still floating is left out too.
+    let autoBaseplate = false, removed = 0;
     const partSize = new Map();
     check.part.forEach((p) => partSize.set(p, (partSize.get(p) || 0) + 1));
     const speck = (i) => check.part[i] !== check.main && partSize.get(check.part[i]) <= MAX_SPECK;
@@ -259,9 +264,20 @@
       model.bricks = model.bricks.filter((b, i) => !speck(i));
       check = L.checkBuild(model, opts);
     }
+    if (check.separate.length && !opts.baseplate) {
+      autoBaseplate = true;
+      check = L.checkBuild(model, { ...opts, baseplate: true });
+    }
+    const stray = [...check.floating, ...check.separate];
+    if (stray.length) {
+      const drop = new Set(stray.map((i) => model.bricks[i]));
+      removed = drop.size;
+      model.bricks = model.bricks.filter((b) => !drop.has(b));
+      check = L.checkBuild(model, { ...opts, baseplate: opts.baseplate || autoBaseplate });
+    }
     model.bricks = check.order;
     model.bricks.forEach((b, i) => { b.step = i; });
-    return { model, check, fixes: { hidden, specks, recoloured } };
+    return { model, check, fixes: { hidden, specks, recoloured, removed, autoBaseplate } };
   };
 
   // Sub-assemblies, like a real LEGO set. The model is cut into sections at its narrowest joints (a
