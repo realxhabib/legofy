@@ -274,7 +274,9 @@
       doc.setFontSize(9);
       doc.setTextColor(200);
       doc.text(`${model.pieces || 'bricks'} · ${colours} colours`, 10, 112);
-      doc.text(`${(model.cols * 0.8).toFixed(1)} × ${(model.depth * 0.8).toFixed(1)} × ${(model.rows * layerMm / 10).toFixed(1)} cm built`, 10, 118);
+      const inch = (mm) => (mm / 25.4).toFixed(1);
+      doc.text(`${inch(model.cols * 8)} × ${inch(model.depth * 8)} × ${inch(model.rows * layerMm)} in built`, 10, 118);
+      doc.text(`(${(model.cols * 0.8).toFixed(1)} × ${(model.depth * 0.8).toFixed(1)} × ${(model.rows * layerMm / 10).toFixed(1)} cm)`, 10, 123);
       const check = model.check;
       if (check) {
         const bits = [`${check.connections.toLocaleString()} stud connections`, check.collisions ? `${check.collisions} overlaps` : 'no overlaps'];
@@ -282,13 +284,13 @@
         if (model.baseplate) bits.push('stands on a baseplate');
         else if (check.stable) bits.push('stands on its own');
         doc.setFillColor(35, 132, 61);
-        doc.roundedRect(10, 128, side - 20, 8 + bits.length * 5, 1.5, 1.5, 'F');
+        doc.roundedRect(10, 130, side - 20, 8 + bits.length * 5, 1.5, 1.5, 'F');
         doc.setTextColor(255);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
-        doc.text('Build-checked', 13, 134);
+        doc.text('Build-checked', 13, 136);
         doc.setFont('helvetica', 'normal');
-        bits.forEach((t, k) => doc.text(`- ${t}`, 13, 139.5 + k * 5));
+        bits.forEach((t, k) => doc.text(`- ${t}`, 13, 141.5 + k * 5));
       }
       if (model.assemblies && model.assemblies.length) {
         doc.setTextColor(200);

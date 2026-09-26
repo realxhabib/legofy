@@ -172,7 +172,7 @@
   }
 
   function showSettingsFor(kind) {
-    el.colsOut.value = el.cols.value;
+    el.colsOut.value = sizeLabel(+el.cols.value);
     for (const node of document.querySelectorAll('[data-source]')) {
       node.hidden = !node.dataset.source.split(' ').includes(kind);
     }
@@ -299,7 +299,7 @@
     // Tall and thin: build it big enough that the fins, flaps and vents survive as bricks.
     showSettingsFor('model');
     el.cols.value = 300;
-    el.colsOut.value = 300;
+    el.colsOut.value = sizeLabel(300);
     useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 123.1 });
   });
 
@@ -395,9 +395,10 @@
 
   // ---------- settings ----------
 
-  el.cols.addEventListener('input', () => { el.colsOut.value = el.size2Out.value = el.size2.value = el.cols.value; });
+  const showSize = () => { el.colsOut.value = el.size2Out.value = sizeLabel(+el.cols.value); };
+  el.cols.addEventListener('input', () => { el.size2.value = el.cols.value; showSize(); });
   // The same size slider under the 3D view: drag for a bigger model with more pieces (or fewer).
-  el.size2.addEventListener('input', () => { el.cols.value = el.size2.value; el.colsOut.value = el.size2Out.value = el.cols.value; });
+  el.size2.addEventListener('input', () => { el.cols.value = el.size2.value; showSize(); });
   el.size2.addEventListener('change', () => { el.cols.value = el.size2.value; el.cols.dispatchEvent(new Event('change')); });
   // Text needs size: letters only read once each is several studs tall. Switching to "keep text"
   // makes the build big (and built from plates, see build()); switching back restores the old size.
@@ -409,7 +410,7 @@
     } else {
       el.cols.value = normalSize;
     }
-    el.colsOut.value = el.cols.value;
+    showSize();
   });
   // Turning the model changes where everything is, so earlier deletions no longer line up.
   el.up.addEventListener('change', () => { state.edits = []; });
@@ -524,7 +525,8 @@
     state.model = model;
     state.highlight = null;
     el.size2.value = el.cols.value;
-    el.size2Out.value = el.cols.value;
+    // Show the built model's real longest side (it can come out a stud bigger than the target).
+    el.colsOut.value = el.size2Out.value = formatLength(Math.max(model.cols, model.depth, model.rows * (model.layerHeight || L.BRICK_HEIGHT)) * STUD_M);
     el.pieceCount.textContent = `${model.bricks.length.toLocaleString()} ${model.pieces}`;
     state.parts = L.partsList(model.bricks, model.palette, model.piece);
     if (model.baseplate) {
@@ -572,7 +574,7 @@
     if (m.baseplate) {
       row('ok', `<b>Stands on a ${m.baseplate.a} × ${m.baseplate.c} baseplate</b>${m.baseplate.count > 1 ? ` (${m.baseplate.count} of them)` : ''}, which holds the bottom together`);
     } else if (c.stable) {
-      row('ok', `<b>Stands on its own</b>: its weight is ${c.margin.toFixed(1)} studs inside its base`);
+      row('ok', `<b>Stands on its own</b>: its weight is ${formatLength(c.margin * STUD_M)} inside the edge of its base`);
     } else {
       row('warn', '<b>Would tip over</b>: its weight isn\'t over its base', [['Add a baseplate', 'baseplate']]);
     }
@@ -617,6 +619,7 @@
     state.editing = on;
     el.editBar.hidden = !on;
     el.edit.classList.toggle('on', on);
+    el.edit.textContent = on ? '✓ Done removing' : '✂ Remove parts';
     el.canvasWrap.classList.toggle('edit-mode', on);
     if (el.hint.isConnected && state.model) el.hint.hidden = on;
     if (state.scene) state.scene.setBrush(null);
@@ -865,7 +868,8 @@
     const colors = new Set(state.model.bricks.map((b) => b.color)).size;
     el.partsSummary.textContent =
       `${state.model.bricks.length.toLocaleString()} ${state.model.pieces} · ${colors} colors · ` +
-      `${state.model.cols} × ${state.model.depth} studs, ${state.model.rows} ${state.model.pieces} tall`;
+      `${formatLength(state.model.cols * STUD_M)} × ${formatLength(state.model.depth * STUD_M)} × ` +
+      `${formatLength(state.model.rows * (state.model.layerHeight || L.BRICK_HEIGHT) * STUD_M)} tall`;
   }
 
   const sub = (b) => (b.group ? `, sub-assembly ${state.model.assemblies[b.group - 1].label}` : '');
@@ -927,13 +931,28 @@
     return Math.round(n).toLocaleString();
   }
   function formatMass(g) {
-    if (g >= 1e6) return `${(g / 1e6).toLocaleString(undefined, { maximumFractionDigits: g >= 1e8 ? 0 : 1 })} tonnes`;
-    if (g >= 1e3) return `${(g / 1e3).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
-    return `${Math.round(g)} g`;
+    const lb = g / 453.6;
+    if (lb < 1) return `${Math.max(1, Math.round(lb * 16))} oz`;
+    if (lb < 2000) return `${lb < 20 ? +lb.toFixed(1) : Math.round(lb).toLocaleString()} lb`;
+    return `${(lb / 2000).toLocaleString(undefined, { maximumFractionDigits: lb < 2e5 ? 1 : 0 })} tons`;
   }
-  function formatLength(m) {
-    return m >= 1 ? `${m.toLocaleString(undefined, { maximumFractionDigits: 1 })} m` : `${(m * 100).toFixed(1)} cm`;
+
+  // Lengths in inches / feet, with metric alongside when asked.
+  function formatLength(m, metric = false) {
+    const inches = m / 0.0254;
+    let us;
+    if (inches < 24) us = `${+inches.toFixed(1)} in`;
+    else if (inches < 12 * 100) {
+      const ft = Math.floor(inches / 12), inch = Math.round(inches - ft * 12);
+      us = inch === 12 ? `${ft + 1} ft` : inch ? `${ft} ft ${inch} in` : `${ft} ft`;
+    } else us = `${Math.round(inches / 12).toLocaleString()} ft`;
+    if (!metric) return us;
+    const si = m >= 1 ? `${m.toLocaleString(undefined, { maximumFractionDigits: 1 })} m` : `${(m * 100).toFixed(m < 0.1 ? 1 : 0)} cm`;
+    return `${us} (${si})`;
   }
+  L.formatLength = formatLength;
+  // The size slider's value (longest side, in studs of 8 mm) as a length.
+  const sizeLabel = (studs) => formatLength(studs * STUD_M);
   function formatDuration(seconds) {
     const h = seconds / 3600;
     if (h < 1) return `${Math.max(1, Math.round(seconds / 60))} minutes`;
@@ -954,7 +973,7 @@
     const modelHeight = m.rows * layerM;
     // Until someone types a height, show the build at its own real size.
     const height = state.source.realHeight || modelHeight;
-    if (document.activeElement !== el.realHeight) el.realHeight.value = +height.toFixed(3);
+    if (document.activeElement !== el.realHeight) el.realHeight.value = +(height / 0.3048).toFixed(2); // feet
     const k = +(height / modelHeight).toFixed(6);
     const hollow = el.hollow.checked;
     const studCells = m.bricks.reduce((n, b) => n + b.w * b.d, 0);
@@ -979,7 +998,7 @@
     const dollars = bricks * 0.1;     // roughly 10¢ per brick
     const rows = [
       [k <= 2 ? m.pieces[0].toUpperCase() + m.pieces.slice(1) : 'Bricks', `≈ ${formatCount(bricks)}`, 'big'],
-      ['Size', `${formatLength(m.cols * k * STUD_M)} × ${formatLength(m.depth * k * STUD_M)} × ${formatLength(height)} tall`],
+      ['Size', `${formatLength(m.cols * k * STUD_M)} × ${formatLength(m.depth * k * STUD_M)} × ${formatLength(height, true)} tall`],
       [`Rows of ${m.pieces}`, formatCount(height / layerM)],
       ['Weight', `≈ ${formatMass(grams)}`],
       ['Cost', `≈ $${formatCount(dollars)} at ~10¢ a brick`],
@@ -993,7 +1012,7 @@
   el.realHeight.addEventListener('input', () => {
     if (!state.source) return;
     const v = parseFloat(el.realHeight.value);
-    if (v > 0) { state.source.realHeight = v; renderLifeSize(); }
+    if (v > 0) { state.source.realHeight = v * 0.3048; renderLifeSize(); } // typed in feet, kept in metres
   });
 
   // ---------- export ----------

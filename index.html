@@ -56,7 +56,7 @@
         <h2 id="adjustTitle" class="card-title"><span class="step">2</span> Adjust the build</h2>
         <label class="row">
           <span class="row-label">Size (longest side)
-            <output id="colsOut">36</output> studs</span>
+            <output id="colsOut">11.3 in</output></span>
           <input id="cols" type="range" min="12" max="320" step="4" value="36">
         </label>
         <label class="row">
@@ -108,7 +108,7 @@
         <details id="life" class="life" hidden>
           <summary>How many at real size?</summary>
           <label class="row">
-            <span class="row-label">How tall is the real thing? (meters)</span>
+            <span class="row-label">How tall is the real thing? (feet)</span>
             <input id="realHeight" type="number" min="0.01" step="any" inputmode="decimal">
           </label>
           <dl id="lifeStats"></dl>
@@ -137,10 +137,11 @@
         <div id="editBar" class="edit-bar" hidden>
           <p><b>Remove parts:</b> tap the bricks you don't want. Drag to turn the model.</p>
           <div class="edit-tools">
+            <span class="seg-label">Eraser size</span>
             <div class="seg" role="radiogroup" aria-label="Eraser size">
-              <button type="button" data-brush="0.05" role="radio" title="Small bites">S</button>
-              <button type="button" data-brush="0.1" role="radio" aria-checked="true" title="Medium bites">M</button>
-              <button type="button" data-brush="0.2" role="radio" title="Big bites">L</button>
+              <button type="button" data-brush="0.05" role="radio"><i class="dot s"></i>Small</button>
+              <button type="button" data-brush="0.1" role="radio" aria-checked="true"><i class="dot m"></i>Medium</button>
+              <button type="button" data-brush="0.2" role="radio"><i class="dot l"></i>Large</button>
             </div>
             <button id="editLargest" type="button" title="Delete everything that isn't attached to the main part">Keep main part</button>
             <button id="editUndo" type="button" disabled>↶ Undo</button>
@@ -160,7 +161,7 @@
         <label class="size-ctl">
           <span>Size</span>
           <input id="size2" type="range" min="12" max="320" step="4" value="36" aria-label="Model size (bigger means more pieces)">
-          <span class="size-out"><output id="size2Out">36</output> studs · <span id="pieceCount"></span></span>
+          <span class="size-out"><output id="size2Out">11.3 in</output> · <span id="pieceCount"></span></span>
         </label>
         <div class="buttons">
           <div class="transport">

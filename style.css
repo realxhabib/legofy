@@ -407,10 +407,18 @@ canvas:active { cursor: grabbing; }
 .edit-tools button:disabled { opacity: 0.4; cursor: default; }
 .edit-tools button.primary { background: var(--accent); border-color: transparent; font-weight: 600; }
 .seg { display: flex; border-radius: 9px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.2); }
-.seg button { border: 0; border-radius: 0; width: 34px; padding: 0; background: transparent; }
+.seg button {
+  border: 0; border-radius: 0; padding: 0 10px; background: transparent;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+}
+.seg-label { font-size: 12px; font-weight: 600; opacity: 0.85; }
+.dot { display: inline-block; border-radius: 50%; background: currentColor; opacity: 0.8; flex: none; }
+.dot.s { width: 5px; height: 5px; }
+.dot.m { width: 9px; height: 9px; }
+.dot.l { width: 13px; height: 13px; }
 .seg button[aria-checked="true"] { background: #fff; color: #1b1f24; font-weight: 700; }
 .edit-mode canvas { cursor: crosshair; }
-.buttons button.on { background: var(--ink); color: var(--panel); border-color: transparent; }
+.buttons button.ghost.on { background: var(--ink); color: var(--panel); border-color: transparent; }
 
 /* ---------- Buying the parts ---------- */
 .buy-box { display: flex; flex-direction: column; gap: 8px; }
