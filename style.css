@@ -148,24 +148,6 @@ main {
 }
 
 /* ---------- Start actions ---------- */
-.scan-btn {
-  display: flex; align-items: center; gap: 12px; text-align: left;
-  padding: 12px 16px; border-radius: 14px; border: 0; cursor: pointer;
-  background: linear-gradient(180deg, #e0201d, var(--accent)); color: #fff;
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), 0 6px 16px -8px rgba(208, 16, 18, 0.7);
-  transition: transform 0.12s, filter 0.12s;
-}
-.scan-btn:hover { filter: brightness(1.06); }
-.scan-btn:active { transform: translateY(1px); }
-.scan-btn strong { display: block; }
-.scan-btn small { display: block; opacity: 0.85; font-size: 12px; }
-.scan-icon {
-  flex: none; width: 34px; height: 34px; border-radius: 50%;
-  border: 3px dashed rgba(255, 255, 255, 0.9);
-  background: radial-gradient(circle, #fff 0 5px, transparent 6px);
-  animation: spin 12s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 .ai3d {
   display: flex; flex-direction: column; gap: 8px;
   padding: 12px; border-radius: 14px;
@@ -332,7 +314,7 @@ canvas:active { cursor: grabbing; }
   55% { transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .empty-bricks i, .scan-icon { animation: none; }
+  .empty-bricks i { animation: none; }
 }
 
 /* ---------- Player controls ---------- */
@@ -389,6 +371,65 @@ canvas:active { cursor: grabbing; }
   pointer-events: none;
 }
 
+
+/* ---------- Photo waiting to become 3D ---------- */
+.empty-photo {
+  display: block; margin: 0 auto 14px; max-width: min(320px, 70%); max-height: 240px; object-fit: contain;
+  border-radius: 14px; background: #fff; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+}
+.empty-status { margin: 16px auto 0 !important; font-size: 14px; color: #fff; }
+.empty-status.error { color: #ff8a80; }
+.big-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* ---------- Removing parts ---------- */
+.edit-bar {
+  position: absolute; left: 12px; right: 12px; bottom: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 10px 12px; border-radius: 14px;
+  background: rgba(20, 22, 26, 0.82); color: #fff; backdrop-filter: blur(8px);
+}
+.edit-bar p { margin: 0; font-size: 13px; }
+.edit-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.edit-tools button {
+  height: 34px; padding: 0 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.08); color: #fff;
+}
+.edit-tools button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+.edit-tools button:disabled { opacity: 0.4; cursor: default; }
+.edit-tools button.primary { background: var(--accent); border-color: transparent; font-weight: 600; }
+.seg { display: flex; border-radius: 9px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.2); }
+.seg button { border: 0; border-radius: 0; width: 34px; padding: 0; background: transparent; }
+.seg button[aria-checked="true"] { background: #fff; color: #1b1f24; font-weight: 700; }
+.edit-mode canvas { cursor: crosshair; }
+.buttons button.on { background: var(--ink); color: var(--panel); border-color: transparent; }
+
+/* ---------- Buying the parts ---------- */
+.buy { display: flex; flex-direction: column; gap: 8px; }
+.buy-btn {
+  height: 46px; border-radius: 12px; border: 0; cursor: pointer; font-weight: 700; font-size: 15px;
+  background: linear-gradient(180deg, #2fa84f, #23843d); color: #fff;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), 0 6px 16px -8px rgba(35, 132, 61, 0.8);
+}
+.buy-btn:hover { filter: brightness(1.06); }
+.buttons button.buy {
+  background: #23843d; color: #fff; border-color: transparent; font-weight: 600;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2);
+}
+.buttons button.buy:hover { filter: brightness(1.08); }
+.pnum { color: var(--muted); font-size: 11.5px; text-decoration: none; border-bottom: 1px dotted currentColor; }
+.pnum:hover { color: var(--accent); }
+.toast {
+  position: fixed; z-index: 30; left: 50%; bottom: 20px; transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px)); padding: 14px 40px 14px 16px; border-radius: 14px;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.45); font-size: 14px;
+}
+.toast ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.toast-close {
+  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%;
+  border: 0; background: var(--field); color: var(--ink); cursor: pointer; font-size: 18px; line-height: 1;
+}
+
 /* ---------- Small screens ---------- */
 @media (max-width: 900px) {
   .topbar { padding: 14px 16px 6px; }
@@ -406,79 +447,15 @@ canvas:active { cursor: grabbing; }
   .buttons { gap: 8px; }
   .transport { width: 100%; flex-wrap: nowrap; }
   .transport button.primary { flex: 1; min-width: 0; }
-  .speed { flex: 1; min-width: 0; }
+  .speed { order: 10; width: 100%; }
   .speed input { flex: 1; width: auto; min-width: 0; }
+  #view, #edit { flex: 1; }
   .spacer { display: none; }
   .downloads { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
   .downloads button { padding: 0 8px; }
-  .downloads #saveManual { grid-column: 1 / -1; height: 44px; }
+  .downloads #saveManual, .downloads #buyParts2 { grid-column: 1 / -1; height: 44px; }
+  .edit-bar { position: static; width: calc(100% - 16px); margin: 0 8px 8px; justify-content: center; }
+  .edit-bar p { text-align: center; font-size: 12px; }
 }
 
-/* ---------- Walk-around scanner ---------- */
-.scanner { position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; }
-.scanner video, .scan-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.scan-overlay { touch-action: none; }
-.scan-top {
-  position: absolute; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-  background: linear-gradient(rgba(0, 0, 0, 0.7), transparent); pointer-events: none;
-}
-.scan-top canvas { width: 56px; height: 56px; flex: none; }
-.scan-top p { margin: 0; font-size: 15px; text-shadow: 0 1px 3px #000; }
-.scan-bottom {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 16px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-}
-.scan-bottom canvas {
-  width: 120px; height: 120px; border-radius: 12px;
-  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2);
-}
-.scan-buttons { display: flex; gap: 8px; }
-.scan-buttons button {
-  white-space: nowrap;
-  font: inherit; font-weight: 600; height: 44px; padding: 0 18px; border-radius: 12px; border: 0;
-  background: rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer;
-}
-.scan-buttons button.primary { background: var(--accent); }
-.scan-buttons button:disabled { opacity: 0.45; }
-body.scanning { overflow: hidden; }
-.scan-confirm {
-  position: absolute; left: 16px; right: 16px; bottom: 170px;
-  display: flex; gap: 8px; justify-content: center;
-}
-.scan-confirm button {
-  font: inherit; font-weight: 600; height: 48px; padding: 0 18px; border-radius: 12px; border: 0;
-  background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer; white-space: nowrap;
-}
-.scan-confirm button.primary { background: var(--accent); }
-.scan-review {
-  position: absolute; inset: 0; overflow: auto;
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-  background: #16181c;
-}
-.review-head h2 { margin: 0; font-size: 20px; }
-.review-head p { margin: 4px 0 0; color: #aeb3ba; font-size: 14px; }
-.review-3d {
-  width: 100%; height: min(45vh, 420px); flex: none; border-radius: 14px;
-  background: radial-gradient(circle at 50% 40%, #2d323a, #111316); touch-action: none;
-}
-.review-toggle { display: flex; gap: 8px; align-items: center; font-size: 14px; color: #d6d9dd; }
-.review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
-.capture { position: relative; border-radius: 10px; overflow: hidden; background: #000; }
-.capture-img { display: block; width: 100%; height: auto; cursor: pointer; }
-.capture.off .capture-img { opacity: 0.25; filter: grayscale(1); }
-.capture .eye {
-  position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-radius: 50%;
-  display: grid; place-items: center; border: 0; cursor: pointer;
-  background: rgba(0, 0, 0, 0.6); color: #fff;
-}
-.capture.off .eye { background: var(--accent); }
-.capture .badge {
-  position: absolute; top: 6px; left: 6px; font-size: 14px; line-height: 1;
-  padding: 3px 5px; border-radius: 6px; background: #f2cd37; color: #1b2a34;
-}
-.capture .num { position: absolute; bottom: 4px; left: 6px; font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000; }
-.review-buttons { justify-content: flex-end; flex-wrap: wrap; position: sticky; bottom: 0; padding-top: 8px; background: #16181c; }
 [hidden] { display: none !important; }

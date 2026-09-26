@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Legofy — turn images and 3D scans into brick sculptures</title>
+  <title>Legofy — turn any photo or 3D model into a real LEGO build</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@800;900&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <span class="wordmark">Legofy</span>
     </a>
-    <p class="tagline">Turn photos, scans and 3D models into real LEGO&reg; builds, with step-by-step instructions.</p>
+    <p class="tagline">Turn any photo or 3D model into a real LEGO&reg; build, with instructions and every piece ready to order.</p>
   </header>
 
   <main>
@@ -34,51 +34,30 @@
           </div>
           <div class="drop-hint">
             <span class="drop-icon" aria-hidden="true"></span>
-            <strong>Drop a photo or 3D file</strong>
+            <strong>Drop a photo or a 3D model</strong>
             <span>or click to choose · paste works too</span>
-            <span class="formats">Photos, iPhone spatial photos (HEIC), GLB, OBJ, PLY, STL, USDZ</span>
+            <span class="formats">Photos (JPEG, PNG, HEIC) · 3D models (GLB, OBJ, PLY, STL, USDZ)</span>
           </div>
         </label>
-        <button id="scanBtn" class="scan-btn" type="button">
-          <span class="scan-icon" aria-hidden="true"></span>
-          <span><strong>Scan a real object</strong><small>Walk around it with your phone camera</small></span>
-        </button>
         <p id="notice" class="notice" hidden></p>
-        <div class="ai3d" data-source="image spatial" hidden>
-          <button id="ai3dBtn" type="button" class="ai-btn"><span aria-hidden="true">✦</span> Make a full 3D model with AI</button>
-          <label class="check"><input id="ai3dTextured" type="checkbox" checked> With colours (about 3× the cost)</label>
-          <p class="fine">Sends this photo to Hunyuan3D on fal.ai, which models the whole object, back included,
-            in about a minute. Works best with one object on a plain background.</p>
+        <div class="ai3d" data-source="image" hidden>
+          <button id="ai3dBtn" type="button" class="ai-btn"><span aria-hidden="true">✦</span> Generate 3D model</button>
+          <p class="fine">Our AI builds the whole object from your photo, back included, in about a minute.
+            Works best with one object on a plain background.</p>
         </div>
         <div class="samples">
-          <span>Try a sample</span>
-          <button id="sample" class="chip" type="button">🦆 Duck picture</button>
+          <span>Or try a sample</span>
           <button id="sample3d" class="chip" type="button">🍄 3D toadstool</button>
           <button id="sampleStarship" class="chip" type="button">🚀 Life-size Starship</button>
         </div>
-        <details class="howto">
-          <summary>Tips for a good scan</summary>
-          <ol>
-            <li>Put the object on a table in even light, against a background that looks different from it.</li>
-            <li>Tap <b>Scan a real object</b>, allow camera and motion access, then tap the object on screen.</li>
-            <li>Walk slowly all the way around it, keeping the whole object in view. Then do a second, lower
-              lap from the side (crouch for things on the floor): views from above can't see how tall it is.</li>
-            <li>Keep the object filling a good part of the screen, and move slowly so frames aren't blurry.</li>
-            <li>Has an opening (a shoe, a cup)? Include a few shots looking down into it, so the on-device depth
-              model can see how deep it goes.</li>
-            <li>Tap <b>Done</b>, check the 3D preview, and hide any ⚠ captures that make it worse.
-              Everything happens on your phone, and nothing is uploaded.</li>
-          </ol>
-          <p>Already have a scan from an app like Scaniverse or Polycam? Export it as GLB and drop it above.</p>
-        </details>
       </section>
 
-      <section id="settings" class="card" aria-labelledby="adjustTitle">
+      <section id="settings" class="card" aria-labelledby="adjustTitle" data-source="model" hidden>
         <h2 id="adjustTitle" class="card-title"><span class="step">2</span> Adjust the build</h2>
         <label class="row">
-          <span class="row-label"><span data-source="image spatial">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
+          <span class="row-label">Size (longest side)
             <output id="colsOut">36</output> studs</span>
-          <input id="cols" type="range" min="12" max="120" step="4" value="36">
+          <input id="cols" type="range" min="12" max="320" step="4" value="36">
         </label>
         <label class="row">
           <span class="row-label">Detail</span>
@@ -87,7 +66,7 @@
             <option value="text">Keep text &amp; fine detail: large, built from plates</option>
           </select>
         </label>
-        <label class="row" data-source="model" hidden>
+        <label class="row">
           <span class="row-label">Which way is up?</span>
           <select id="up">
             <option value="y">Y up (most apps, GLB)</option>
@@ -97,10 +76,6 @@
             <option value="x">X up</option>
             <option value="-x">Flip X</option>
           </select>
-        </label>
-        <label class="row" data-source="image">
-          <span class="row-label">Thickness <output id="thickOut">60%</output> <small>(0% = flat wall)</small></span>
-          <input id="thick" type="range" min="0" max="100" step="5" value="60">
         </label>
         <label class="row">
           <span class="row-label">Build order</span>
@@ -113,9 +88,7 @@
           </select>
         </label>
         <div class="checks">
-          <label class="check" data-source="image spatial"><input id="removeBg" type="checkbox" checked> Cut out the subject</label>
           <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer pieces)</label>
-          <label class="check" data-source="image spatial"><input id="dither" type="checkbox"> Dither colours (smoother photos)</label>
           <label class="check"><input id="singles" type="checkbox"> 1 × 1 pieces only</label>
         </div>
       </section>
@@ -123,6 +96,12 @@
       <section class="card parts" aria-labelledby="partsTitle">
         <h2 id="partsTitle" class="card-title"><span class="step">3</span> Get the pieces</h2>
         <p class="parts-summary"><small id="partsSummary"></small></p>
+        <div id="buyBox" class="buy" hidden>
+          <button id="buyParts" type="button" class="buy-btn">🛒 Buy all the parts</button>
+          <p class="fine">Opens BrickLink, the biggest LEGO parts marketplace, with your list copied: paste it in,
+            then press <b>Easy Buy</b> to find shops that have everything.
+            <button id="saveXml" type="button" class="link-btn">Download the list instead</button></p>
+        </div>
         <ol id="parts"></ol>
         <details id="life" class="life" hidden>
           <summary>How many at real size?</summary>
@@ -140,16 +119,33 @@
       <div id="canvasWrap" class="canvas-wrap">
         <div id="empty" class="empty">
           <div class="empty-bricks" aria-hidden="true"><i></i><i></i><i></i></div>
-          <h2>Build anything in LEGO</h2>
-          <p>Drop in a photo, scan an object with your phone, or load a 3D model. You'll get a brick-by-brick
-            build, a parts list of real LEGO pieces, and printable instructions.</p>
+          <img id="emptyPhoto" class="empty-photo" alt="" hidden>
+          <h2 id="emptyTitle">Build anything in LEGO</h2>
+          <p id="emptyText">Drop in a photo and our AI turns it into a 3D model, or upload a 3D model you already have.
+            You get a brick-by-brick build, printable instructions, and every real LEGO piece you need, ready to order.</p>
           <div class="empty-actions">
-            <button type="button" class="big-btn primary" onclick="document.getElementById('file').click()">Choose a photo</button>
-            <button type="button" class="big-btn" onclick="document.getElementById('sample3d').click()">See an example</button>
+            <button id="emptyGenerate" type="button" class="big-btn primary" hidden>✦ Generate 3D model</button>
+            <button id="emptyChoose" type="button" class="big-btn primary">Choose a photo or 3D model</button>
+            <button id="emptySample" type="button" class="big-btn">See an example</button>
           </div>
+          <p id="emptyStatus" class="empty-status" hidden></p>
         </div>
         <canvas id="canvas" hidden></canvas>
         <p id="hint" class="hint" hidden>Drag to orbit · scroll to zoom · right-drag to pan</p>
+        <div id="editBar" class="edit-bar" hidden>
+          <p><b>Remove parts:</b> tap the bricks you don't want. Drag to turn the model.</p>
+          <div class="edit-tools">
+            <div class="seg" role="radiogroup" aria-label="Eraser size">
+              <button type="button" data-brush="1.5" role="radio">S</button>
+              <button type="button" data-brush="3" role="radio" aria-checked="true">M</button>
+              <button type="button" data-brush="6" role="radio">L</button>
+            </div>
+            <button id="editLargest" type="button" title="Delete everything that isn't attached to the main part">Keep main part</button>
+            <button id="editUndo" type="button" disabled>↶ Undo</button>
+            <button id="editReset" type="button" disabled>Reset</button>
+            <button id="editDone" type="button" class="primary">Done</button>
+          </div>
+        </div>
       </div>
 
       <div id="controls" class="controls" hidden>
@@ -172,8 +168,10 @@
             <output id="speedOut"></output>
           </label>
           <button id="view" class="ghost" title="Reset camera">⟲ View</button>
+          <button id="edit" class="ghost" title="Delete bits of the model you don't want">✂ Remove parts</button>
           <span class="spacer"></span>
           <div class="downloads">
+            <button id="buyParts2" class="buy" title="Order every piece on BrickLink">🛒 Buy the parts</button>
             <button id="saveManual" class="accent" title="Step-by-step building instructions as a PDF">📘 Instructions (PDF)</button>
             <button id="saveCsv" class="ghost" title="Parts list in Rebrickable format (part number, colour, quantity) for ordering">Parts list</button>
             <button id="savePng" class="ghost" title="Download a picture of the current view">PNG</button>
@@ -188,45 +186,9 @@
       LEGO&reg; is a trademark of the LEGO Group, which does not sponsor or endorse this site.</p>
   </footer>
 
-  <div id="scanner" class="scanner" hidden>
-    <div id="scanLive">
-      <video id="scanVideo" playsinline muted></video>
-      <canvas id="scanOverlay" class="scan-overlay"></canvas>
-      <div class="scan-top">
-        <canvas id="scanRing" width="112" height="112"></canvas>
-        <p id="scanStatus">Starting…</p>
-      </div>
-      <div id="scanConfirm" class="scan-confirm" hidden>
-        <button id="confirmNo" type="button">No, tap again</button>
-        <button id="confirmYes" type="button" class="primary">Yes, start scanning</button>
-      </div>
-      <div class="scan-bottom">
-        <canvas id="scanPreview" width="240" height="240" title="Shape so far"></canvas>
-        <div class="scan-buttons">
-          <button id="scanCancel" type="button">Cancel</button>
-          <button id="scanDone" type="button" class="primary" disabled>Done</button>
-        </div>
-      </div>
-    </div>
+  <div id="toast" class="toast" role="status" hidden></div>
 
-    <div id="scanReview" class="scan-review" hidden>
-      <div class="review-head">
-        <h2>Your scan</h2>
-        <p id="reviewInfo"></p>
-      </div>
-      <canvas id="reviewCanvas" class="review-3d" title="Drag to spin"></canvas>
-      <label class="review-toggle"><input id="reviewOpenings" type="checkbox" checked>
-        Dig out openings (inside of a shoe, a cup…) with on-device AI depth</label>
-      <div id="reviewGrid" class="review-grid"></div>
-      <div class="scan-buttons review-buttons">
-        <button id="reviewCancel" type="button">Discard</button>
-        <button id="reviewMore" type="button">Scan more</button>
-        <button id="reviewBuild" type="button" class="primary">Build it</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="dropOverlay" class="drop-overlay" hidden>Drop to build (you can drop several files at once)</div>
+  <div id="dropOverlay" class="drop-overlay" hidden>Drop your photo or 3D model</div>
 
   <script type="importmap">
     {
@@ -240,8 +202,7 @@
   <script src="src/palette.js"></script>
   <script src="src/sculpt.js"></script>
   <script src="src/voxelize.js"></script>
-  <script src="src/scan.js"></script>
-  <script src="src/spatial.js"></script>
+  <script src="src/heic.js"></script>
   <script src="src/manual.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
@@ -265,33 +226,7 @@
       ]);
       return Object.assign({ DRACO_DECODER_PATH: `${CDN}libs/draco/gltf/` }, ...mods);
     };
-    // On-device object segmentation for walk-around scanning, fetched the first time someone scans.
-    const MEDIAPIPE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35';
-    const SEGMENTER_MODEL =
-      'https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite';
-    const loadSegmenter = async () => {
-      const { FilesetResolver, InteractiveSegmenter } = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
-      const fileset = await FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
-      const create = (delegate) => InteractiveSegmenter.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: SEGMENTER_MODEL, delegate },
-        outputCategoryMask: false,
-        outputConfidenceMasks: true,
-      });
-      try { return await create('GPU'); } catch (err) { return create('CPU'); }
-    };
-    // On-device depth estimation (Depth Anything V2 small, ~27 MB) for finding openings in scans.
-    const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
-    const loadDepth = async () => {
-      const { pipeline } = await import(TRANSFORMERS);
-      const model = 'onnx-community/depth-anything-v2-small';
-      // Use the GPU when there really is one (a failed WebGPU start can break the fallback).
-      const adapter = navigator.gpu && await navigator.gpu.requestAdapter().catch(() => null);
-      if (adapter) {
-        try { return await pipeline('depth-estimation', model, { dtype: 'q8', device: 'webgpu' }); } catch (err) { /* fall back */ }
-      }
-      return pipeline('depth-estimation', model, { dtype: 'q8', device: 'wasm' });
-    };
-    // HEIC decoding (for iPhone spatial photos), fetched the first time one is dropped in.
+    // HEIC decoding (iPhone photos), fetched the first time one is dropped in.
     const loadHeif = async () => (await import('https://cdn.jsdelivr.net/npm/libheif-js@1.23.2/libheif-wasm/libheif-bundle.mjs')).default();
     // jsPDF for the instruction manual (self-contained UMD build, loaded on first use).
     const loadJsPdf = () => window.jspdf ? Promise.resolve(window.jspdf.jsPDF) : new Promise((resolve, reject) => {
@@ -301,7 +236,7 @@
       s.onerror = () => reject(new Error('Could not load the PDF maker.'));
       document.head.appendChild(s);
     });
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth, loadHeif, loadJsPdf });
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadHeif, loadJsPdf });
   </script>
 </body>
 </html>

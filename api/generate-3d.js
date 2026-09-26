@@ -1,9 +1,9 @@
-// Vercel serverless function: turns a photo into a textured 3D model with Hunyuan3D v2 on fal.ai.
-// The fal API key stays here on the server (set FAL_KEY in the Vercel project's environment variables);
-// the page only ever talks to this function.
+// Vercel serverless function: turns a photo into a textured 3D model (Hunyuan3D v2, run on fal.ai).
+// The API key stays here on the server (set FAL_KEY in the Vercel project's environment variables);
+// the page only ever talks to this function, and never names the provider to visitors.
 //
-//   POST /api/hunyuan3d   { image: "data:image/jpeg;base64,...", textured: true }  ->  { id }
-//   GET  /api/hunyuan3d?id=<request id>  ->  { status, position?, modelUrl? }
+//   POST /api/generate-3d   { image: "data:image/jpeg;base64,..." }  ->  { id }
+//   GET  /api/generate-3d?id=<request id>  ->  { status, position?, modelUrl? }
 //
 // Jobs go through fal's queue, so a slow generation never runs into the function's time limit.
 
@@ -54,7 +54,11 @@ async function fal(url, init = {}) {
   try { data = JSON.parse(text); } catch { data = { detail: text }; }
   if (!r.ok) {
     const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
-    const err = new Error(`fal.ai ${r.status}: ${detail}`.slice(0, 300));
+    // The details go to the server log; visitors get a plain message without provider names.
+    console.error(`3D provider ${r.status}: ${detail}`.slice(0, 500));
+    const err = new Error(r.status === 422
+      ? 'The AI couldn\'t use that photo. Try a clearer photo of a single object.'
+      : 'The 3D model service is busy or unavailable right now. Please try again in a minute.');
     err.status = r.status;
     throw err;
   }
@@ -63,7 +67,8 @@ async function fal(url, init = {}) {
 
 module.exports = async function handler(req, res) {
   if (!process.env.FAL_KEY) {
-    return send(res, 501, { error: 'AI 3D models are not set up: add FAL_KEY to this Vercel project\'s environment variables.' });
+    console.error('FAL_KEY is not set in this Vercel project\'s environment variables.');
+    return send(res, 501, { error: 'AI 3D models aren\'t available on this site yet.' });
   }
   if (!sameSite(req)) return send(res, 403, { error: 'Not allowed from this site.' });
 
@@ -78,7 +83,8 @@ module.exports = async function handler(req, res) {
       if (image.length > MAX_IMAGE_BYTES * 1.37) return send(res, 413, { error: 'That image is too large.' });
       const job = await fal(`${QUEUE}/${MODEL}`, {
         method: 'POST',
-        body: JSON.stringify({ input_image_url: image, textured_mesh: body.textured !== false }),
+        // Always with colours: the LEGO build takes its brick colours from them.
+        body: JSON.stringify({ input_image_url: image, textured_mesh: true }),
       });
       return send(res, 200, { id: job.request_id });
     }

@@ -1,44 +1,44 @@
-// LEGO plate colors (approximate sRGB values of real, currently produced colors).
+// LEGO colours: name, fallback sRGB, and BrickLink colour id (for ordering the parts on BrickLink).
 (function (L) {
   const COLORS = [
-    ['White', '#F4F4F4'],
-    ['Light Bluish Gray', '#A0A5A9'],
-    ['Dark Bluish Gray', '#6C6E68'],
-    ['Black', '#1B2A34'],
-    ['Red', '#C91A09'],
-    ['Dark Red', '#720E0F'],
-    ['Coral', '#FF698F'],
-    ['Bright Pink', '#E4ADC8'],
-    ['Dark Pink', '#C870A0'],
-    ['Magenta', '#923978'],
-    ['Orange', '#FE8A18'],
-    ['Dark Orange', '#A95500'],
-    ['Bright Light Orange', '#F8BB3D'],
-    ['Yellow', '#F2CD37'],
-    ['Bright Light Yellow', '#FFF03A'],
-    ['Lime', '#BBE90B'],
-    ['Bright Green', '#4B9F4A'],
-    ['Green', '#237841'],
-    ['Dark Green', '#184632'],
-    ['Olive Green', '#9B9A5A'],
-    ['Sand Green', '#A0BCAC'],
-    ['Light Aqua', '#ADC3C0'],
-    ['Dark Turquoise', '#008F9B'],
-    ['Medium Azure', '#36AEBF'],
-    ['Dark Azure', '#078BC9'],
-    ['Bright Light Blue', '#9FC3E9'],
-    ['Medium Blue', '#5A93DB'],
-    ['Blue', '#0055BF'],
-    ['Dark Blue', '#0A3463'],
-    ['Sand Blue', '#6074A1'],
-    ['Medium Lavender', '#AC78BA'],
-    ['Dark Purple', '#3F3691'],
-    ['Light Nougat', '#F6D7B3'],
-    ['Nougat', '#D09168'],
-    ['Medium Nougat', '#AA7D55'],
-    ['Tan', '#E4CD9E'],
-    ['Dark Tan', '#958A73'],
-    ['Reddish Brown', '#582A12'],
+    ['White', '#F4F4F4', 1],
+    ['Light Bluish Gray', '#A0A5A9', 86],
+    ['Dark Bluish Gray', '#6C6E68', 85],
+    ['Black', '#1B2A34', 11],
+    ['Red', '#C91A09', 5],
+    ['Dark Red', '#720E0F', 59],
+    ['Coral', '#FF698F', 220],
+    ['Bright Pink', '#E4ADC8', 104],
+    ['Dark Pink', '#C870A0', 47],
+    ['Magenta', '#923978', 71],
+    ['Orange', '#FE8A18', 4],
+    ['Dark Orange', '#A95500', 68],
+    ['Bright Light Orange', '#F8BB3D', 110],
+    ['Yellow', '#F2CD37', 3],
+    ['Bright Light Yellow', '#FFF03A', 103],
+    ['Lime', '#BBE90B', 34],
+    ['Bright Green', '#4B9F4A', 36],
+    ['Green', '#237841', 6],
+    ['Dark Green', '#184632', 80],
+    ['Olive Green', '#9B9A5A', 155],
+    ['Sand Green', '#A0BCAC', 48],
+    ['Light Aqua', '#ADC3C0', 152],
+    ['Dark Turquoise', '#008F9B', 39],
+    ['Medium Azure', '#36AEBF', 156],
+    ['Dark Azure', '#078BC9', 153],
+    ['Bright Light Blue', '#9FC3E9', 105],
+    ['Medium Blue', '#5A93DB', 42],
+    ['Blue', '#0055BF', 7],
+    ['Dark Blue', '#0A3463', 63],
+    ['Sand Blue', '#6074A1', 55],
+    ['Medium Lavender', '#AC78BA', 157],
+    ['Dark Purple', '#3F3691', 89],
+    ['Light Nougat', '#F6D7B3', 90],
+    ['Nougat', '#D09168', 28],
+    ['Medium Nougat', '#AA7D55', 150],
+    ['Tan', '#E4CD9E', 2],
+    ['Dark Tan', '#958A73', 69],
+    ['Reddish Brown', '#582A12', 88],
   ];
 
   function hexToRgb(hex) {
@@ -70,7 +70,7 @@
     return `rgb(${m(r)},${m(g)},${m(b)})`;
   }
 
-  L.PALETTE = COLORS.map(([name, fallbackHex], id) => {
+  L.PALETTE = COLORS.map(([name, fallbackHex, bricklinkId], id) => {
     // Official colour values and ids from Rebrickable when available (src/parts-data.js).
     const data = (L.COLOR_DATA || {})[name];
     const hex = data ? data.rgb.toUpperCase() : fallbackHex;
@@ -78,6 +78,7 @@
     return {
       id, name, hex, rgb,
       rebrickableId: data ? data.id : null,
+      bricklinkId,
       // Footprints ("1x4", "2x2"…) really produced in this colour, for bricks and for plates.
       made: data ? { brick: new Set(data.brick), plate: new Set(data.plate) } : null,
       lab: rgbToLab(...rgb),

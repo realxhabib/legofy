@@ -1,178 +1,114 @@
 # Legofy
 
-Drop in an image or a 3D scan and watch it get built as a LEGO sculpture, one brick at a time.
+Turn any photo or 3D model into a real LEGO build: watch it go together brick by brick, remove the bits you
+don't want, download step-by-step instructions, and order every piece.
 
-Live site: <https://realxhabib.github.io/legofy/> (once GitHub Pages is enabled, see below).
+## How people use it
+
+1. **Start with something:**
+   - **A photo:** drop it in (JPEG, PNG or an iPhone HEIC) and press **Generate 3D model**. The AI models
+     the whole object, back included, in about a minute.
+   - **A 3D model:** drop in a GLB, OBJ (with its `.mtl` and texture), PLY, STL or USDZ, for example a scan
+     exported from Scaniverse, Polycam or KIRI Engine. Apple's binary USDZ can't be read by browsers yet.
+     If it comes in lying on its side, change **Which way is up?**.
+2. **Remove parts:** **✂ Remove parts** under the build. Tap bricks to delete a ball of them (S / M / L),
+   **Keep main part** deletes everything not attached to the biggest piece (stray bits), and there's Undo
+   and Reset. Deletions are kept in the model's own proportions, so they survive changing the size.
+3. **Adjust:** size (longest side, 12–320 studs), **Keep text & fine detail** (see below), build order,
+   hollow, 1×1s only.
+4. **Get the pieces:**
+   - **🛒 Buy the parts** copies the parts list as a BrickLink Wanted List and opens BrickLink's upload page
+     (sign in, paste, add to a Wanted List, then **Easy Buy** finds shops that have everything). If the
+     clipboard isn't allowed, the list downloads as an XML file instead. Each row in the parts list also
+     links to that part in that colour on BrickLink.
+   - **📘 Instructions (PDF):** cover, parts inventory and one step per layer (see below).
+   - **Parts list:** CSV in Rebrickable's import format; **PNG:** a picture of the view.
 
 ## Run it
 
-It's a static page with no build step. Open `index.html` directly or serve the folder:
+A static page with no build step. Serve the folder:
 
 ```sh
 python3 -m http.server 8000   # then open http://localhost:8000
 ```
 
-three.js is loaded from the jsDelivr CDN, so you need to be online the first time.
+Libraries (three.js, jsPDF, libheif) come from the jsDelivr CDN. Photo → 3D needs the server function,
+so it only works on the Vercel deployment.
 
-## Put it on the web
+## Deploy on Vercel
 
-Everything runs in the browser: images and scans never leave the visitor's device, and there's no server.
-Any static host works.
+Import the repo in Vercel with no build command and `/` as the output directory. The `api/` folder
+becomes the serverless function.
 
-- **GitHub Pages (free):** in the repo, open *Settings → Pages*, set *Source* to *Deploy from a branch*,
-  pick the branch and `/ (root)`, and save. After a minute it's live at `https://realxhabib.github.io/legofy/`.
-  The `.nojekyll` file tells Pages to serve the files as-is.
-- **Netlify / Cloudflare Pages / Vercel:** connect the repo with no build command and `/` as the output
-  directory, or drag the folder onto Netlify Drop.
+**Photo → 3D model** uses Hunyuan3D v2 on fal.ai through `api/generate-3d.js`. Visitors never see the
+provider's name, and the key never reaches the browser. The function holds the key, only accepts requests
+from the site itself, and uses the provider's queue so slow generations don't hit the function's time
+limit. To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**,
+add `FAL_KEY` and redeploy. Each generation costs about $0.48 (textured, since the bricks take their
+colours from it) and anyone who can open the site can start one, so set a spending limit with the
+provider. Payments can gate this later (see Stripe below).
 
-## Scan a real object in the browser
+## Stripe (to do)
 
-Tap **Scan a real object** on a phone, tap the object on screen, and walk slowly around it. There's
-no app, no marker and no upload: everything runs on the phone.
+`Legofy.manualAccess` in `src/app.js` decides who may download the instructions; it currently allows
+everyone. Return `{ allowed: false, message }` for visitors who haven't paid (e.g. after checking a Stripe
+Checkout session) and the download is refused with that message.
 
-- **Where's the camera?** The phone's motion sensors (DeviceOrientation) give its orientation, and the camera
-  must sit somewhere on the ray through the object's silhouette. How far along that ray: at first from how
-  steeply you're looking down (people hold the phone at a steady height while walking round); once half
-  the circle is covered, by trying distances and keeping the one whose outline best matches the shape so far,
-  which copes with walking closer or crouching. After **Done**, every capture's distance is fine-tuned.
-- **What's the object?** MediaPipe's on-device interactive segmenter cuts it out of each frame, zoomed in on a
-  full-resolution crop around the object so small things still get clean edges. Each frame is prompted with
-  the deepest-inside points of the previous capture's cut-out, and only the parts connected to them are kept.
-- **Not fooled by the background:** a cut-out must look like the previous one (the phone only turns ~10°
-  between captures), and parts whose colour matches the surroundings far better than the object (learned
-  from the captures you tapped) are trimmed; a cut-out that is mostly background is dropped. After three
-  misses in a row the scanner stops and asks you to tap the object, and you can tap it any time to
-  re-anchor. That keeps a white sign from turning into "sign plus the cloud next to it".
-- **Mapping:** each captured view (a new one every ~7° of movement) carves away the voxels it sees background
-  through, a "visual hull" that updates live in the preview. A voxel only goes if at least two views agree.
-  Views whose cut-out misses much of the known shape, or that run off the frame, are skipped. Nothing can see
-  under the object, so the floor is found where the rays grazing the bottom of each outline first touch
-  the shape, and the phantom block below it is trimmed.
-- **Openings:** outlines alone can't open up a hollow (nothing sees *through* the inside of a shoe), so
-  after **Done** an on-device depth model (Depth Anything V2 small via transformers.js, ~27 MB, fetched on
-  first use, WebGPU when available) estimates depth on up to 10 captures, from sharp full-resolution crops
-  kept at capture time. Each depth map is calibrated against the tabletop around the object (its distance
-  is known exactly from the floor height and the camera) and the object's outline, and voxels that at least
-  two views clearly see past are dug out. A switch on the review screen turns this off for comparison.
-- **Colors:** each surface voxel takes the majority LEGO color from the frames that face it most directly,
-  using only pixels well inside the cut-out.
-- **You stay in control:** after tapping the object, the scanner highlights what it picked and waits for a
-  yes before capturing anything. After **Done**, a review screen shows the colored 3D result and every
-  capture. The eye button on each capture leaves it out (or brings it back) and the model recarves
-  instantly, so you can compare. Captures that disagree with the rest are flagged ⚠.
+## Instruction manual
 
-Limits: the object needs to stand out from its background. Openings are only dug as deep as some
-capture could see into them. Needs https (Vercel is fine) and camera plus motion permission. iOS asks for motion access
-when you tap Scan.
-
-## 3D scans from other apps
-
-Already have a scan from Scaniverse, Polycam, KIRI Engine or similar? Export it as **GLB** (or OBJ with
-its `.mtl` and texture, PLY, STL) and drop it on the page. Apple's binary USDZ files can't be read by
-browsers yet. If a model comes in lying on its side, change **Which way is up?**.
-
-Every triangle is sampled densely, each sample takes its color from the texture, vertex colors or material,
-and each voxel keeps the LEGO color most of its samples agree on. The closed interior is filled, and then
-it's hollowed and tiled into bricks just like an image.
-
-## iPhone spatial photos
-
-Drop a spatial photo (the HEIC an iPhone 15 Pro / 16 takes in Spatial mode; AirDrop or save it to Files
-so it stays HEIC) and the front of the sculpture follows the object's **measured** depth instead of the
-puffed-up guess used for ordinary pictures:
-
-1. Both views (left and right eye) are decoded with libheif (WebAssembly, fetched on first use), since
-   browsers can't read HEIC themselves.
-2. The views are matched block by block; how far each point shifts between them is its disparity,
-   proportional to 1 / distance.
-3. The on-device depth model gives a smooth, dense depth map for the left view, and the stereo matches
-   calibrate it, so depth comes out in the right proportion to the object's width and height.
-4. The object finder picks out the subject (pointed at the middle of the photo, then growing into
-   touching parts at the same distance), and the photo is cropped to it.
-5. The front surface follows the measured depth, and the unseen back is mirrored about the depth of the
-   outline (a ball stays a ball).
-
-A HEIC with a single photo is built like any other picture.
-
-## AI 3D models (Hunyuan3D)
-
-For a picture or spatial photo, **Make a real 3D model of this with AI** sends the photo to
-[Hunyuan3D v2 on fal.ai](https://fal.ai/models/fal-ai/hunyuan3d/v2), which models the whole object,
-back included, in about a minute. The GLB it returns is built like any dropped-in 3D file.
-
-The fal API key never reaches the browser: the page talks to a Vercel serverless function
-(`api/hunyuan3d.js`) that holds it, only accepts requests from the site itself, and uses fal's queue so
-slow generations don't hit the function's time limit.
-
-To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**, add
-`FAL_KEY` and redeploy. fal charges per generation: $0.16 for a plain mesh, three times that with
-colours (the default, since bricks need colours). Anyone who can open your site can spend credits this
-way, so set a spending limit in your fal account.
+The PDF is made in the browser (A4): a cover with a render and the piece count and size, a parts
+inventory with part numbers, and one layer per step, two steps per page. Each step shows a 3D view with
+the new pieces bright and earlier ones faded, a top-down plan of the layer with a FRONT marker, and the
+pieces it needs.
 
 ## Keeping text readable
 
 **Detail → Keep text & fine detail** builds from plates (a third of a brick tall, so three times the
 vertical resolution), reads textures at up to 2048 px, and bumps the size to at least 96 studs, since a
-letter only reads once it is several studs tall. A 12 cm can at 96 studs gets its logo letters about 13
-studs tall; small print needs more size (3D models and scans go up to 320). Switching back to Normal
-restores the previous size. It's a lot of pieces (a can is ~16,000 plates), so turn up the build speed.
+letter only reads once it is several studs tall. Switching back to Normal restores the previous size.
+It's a lot of pieces, so turn up the build speed.
 
 ## Real LEGO pieces only
-
-Every piece in a build is a real, produced LEGO element:
 
 - Parts are standard bricks and plates (1×1 up to 2×8), each with its official part number
   (e.g. 3001 = Brick 2 × 4, 3020 = Plate 2 × 4).
 - `src/parts-data.js`, generated from [Rebrickable's database downloads](https://rebrickable.com/downloads/),
-  lists which of those footprints LEGO has actually made in each of the 38 colours (an element exists),
-  and the tiler only uses those; every colour exists as a 1×1, so any shape can still be built. Colour
-  values and ids are Rebrickable's official ones.
-- **Parts list** downloads the list in Rebrickable's import format (part, colour id, quantity). Import
-  it on Rebrickable to see prices and sellers, and export it to a BrickLink wanted list or order through
-  LEGO Pick a Brick. (Some combinations have been made but are now retired, so availability varies.)
+  lists which footprints LEGO has actually made in each of the 38 colours, and the tiler only uses those.
+  Every colour exists as a 1×1, so any shape can still be built.
+- `src/palette.js` carries each colour's Rebrickable and BrickLink ids, for the CSV and the BrickLink list.
 
 The baseplate in the 3D view is only for display.
 
 ## At real size
 
-Under the settings, **At real size** takes a real-world height and works out what it would take to build
-the thing full size: brick count, dimensions, weight, cost and build time. For heights up to twice
-the model it scales this build directly. Beyond that it assumes a sturdy hollow shell 2 studs thick made of
-2×4 bricks, so the count grows with surface area (or with volume when **Hollow** is off). The
-**life-size Starship** sample comes out around 11 million bricks. The sample is a detailed model of the full
-Block 2 stack (~123 m, 9 m across, from public figures): steel Super Heavy with raceway, four lattice grid
-fins and catch fittings, the vented hot-staging ring, and Ship with windward heat-shield tiles, a tiled nose
-tip, tapered aft and forward flaps and the payload door. It builds 300 studs tall so the details survive.
+**How many at real size?** takes a real-world height and works out the brick count, dimensions, weight,
+cost and build time at that size. The **life-size Starship** sample (the full ~123 m Block 2 stack)
+comes out around 11 million bricks.
 
 ## How it works
 
-1. **Input:** drag an image anywhere on the page, click the drop zone, or paste from the clipboard.
-   Works best with one subject on a plain or transparent background (a logo, a cartoon, a product shot).
-   The steps below are for images. 3D scans skip steps 2–3 (see above).
-2. **Cut-out:** transparent pixels are dropped, and a plain background is detected from the image border and
-   flood-filled away. Empty margins are trimmed so the subject stands on the baseplate.
-3. **Inflation:** the silhouette is puffed up into a rounded solid. How thick each pixel gets depends on how
-   far it is from the edge, following a sphere profile, so a disc becomes a ball and thin parts stay slim.
-   **Thickness** controls how chunky it is (0% gives a flat brick wall).
-4. **Colors:** each stud is matched to the nearest of ~38 real LEGO colors in CIE Lab space. Anti-aliased
-   in-between colors along edges are snapped to the neighboring color they came from.
-5. **Bricks:** the solid is sliced into layers (one brick tall), made hollow like real brick sculptures, and each
-   layer is tiled with 1×1 up to 2×8 bricks of the same color. The preferred brick direction alternates
-   each layer so bricks overlap the joints below.
-6. **Build:** bricks drop onto a baseplate layer by layer from the bottom (back to front, zigzag, outside in,
-   center out, or random within a layer). The camera slowly orbits and rises with the build. Drag to orbit,
-   scroll to zoom, right-drag to pan; **⟲ View** brings the auto camera back.
-7. **Following along:** you can play or pause, step forward and back, scrub the timeline, and change the speed
-   (1–1000 bricks/s). While paused, the next brick's spot glows and the caption names it.
-8. **Parts list:** shows bricks by color and size, with live progress. Export it as CSV, or save a PNG of the view.
+1. **Voxels:** every triangle of the model is sampled densely; each sample takes its colour from the
+   texture, vertex colours or material, matched to the nearest LEGO colour in CIE Lab, and each voxel keeps
+   the colour most of its samples agree on. The closed interior is filled.
+2. **Edits:** the user's deletions are replayed on the voxels (the voxelized model is cached, so edits
+   rebuild quickly).
+3. **Bricks:** the solid is sliced into layers, hollowed like real brick sculptures, and each layer is
+   tiled with the largest real pieces made in that colour, alternating direction each layer so bricks
+   overlap the joints below.
+4. **Build:** bricks drop onto a baseplate layer by layer. Play, pause, step, scrub and change the speed
+   (1–1000 bricks/s); while paused the next brick's spot glows. Drag to orbit, scroll to zoom, right-drag
+   to pan; **⟲ View** brings the auto camera back.
 
 Keyboard: `Space` play/pause, `←`/`→` step, `Home`/`End` restart/finish.
 
 ## Files
 
-- `src/palette.js`: LEGO color palette plus the sRGB → Lab conversion
-- `src/sculpt.js`: resize, background removal, quantize, inflate to 3D, hollow, tile layers into bricks, build order, parts list
-- `src/scan.js`: walk-around scanning (camera, motion sensors, segmentation, visual-hull carving)
-- `src/voxelize.js`: 3D model → colored voxel volume, plus the sample toadstool
-- `src/scene3d.js`: three.js scene (instanced bricks and studs, baseplate, lighting, drop animation, camera)
-- `src/app.js`: UI, input handling, playback loop
+- `src/palette.js`: LEGO colours (with Rebrickable and BrickLink ids) and sRGB → Lab
+- `src/parts-data.js`: which parts exist in which colours (from Rebrickable)
+- `src/sculpt.js`: voxels → bricks (hollowing, tiling, build order), parts list
+- `src/voxelize.js`: 3D model → coloured voxels, plus the toadstool and Starship samples
+- `src/heic.js`: HEIC photo decoding
+- `src/scene3d.js`: three.js scene (instanced bricks and studs, drop animation, camera, picking)
+- `src/manual.js`: the PDF instruction manual
+- `src/app.js`: UI, photo → 3D, removing parts, playback, buying and exports
+- `api/generate-3d.js`: Vercel function for photo → 3D model

@@ -73,7 +73,7 @@
       this.scene.background = new this.T.Color(css);
     }
 
-    setup(model) {
+    setup(model, { keepView = false } = {}) {
       const T = this.T;
       this.model = model;
       this.world.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -150,7 +150,34 @@
 
       this.showUpTo(0);
       this.builtRows = 0;
-      this.resetView();
+      if (!keepView) this.resetView();
+    }
+
+    // The point on the sculpture under a screen position (client pixels), nudged a little inside the
+    // brick that was hit, in grid units: x/z in studs from the model's corner, y in studs above the plate.
+    pick(clientX, clientY) {
+      const T = this.T;
+      const r = this.canvas.getBoundingClientRect();
+      const ndc = new T.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+      this.raycaster = this.raycaster || new T.Raycaster();
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const hit = this.raycaster.intersectObjects([...this.meshes, this.studs], false)[0];
+      if (!hit) return null;
+      const p = hit.point.clone().addScaledVector(this.raycaster.ray.direction, 0.3);
+      return { world: hit.point, x: p.x + this.model.cols / 2, y: p.y - PLATE_H, z: p.z + this.model.depth / 2 };
+    }
+
+    // A see-through red ball showing what the eraser will remove (radius in studs), or null to hide it.
+    setBrush(world, radius) {
+      if (!this.brush) {
+        const T = this.T;
+        this.brush = new T.Mesh(new T.SphereGeometry(1, 24, 16),
+          new T.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.35, depthWrite: false }));
+        this.brush.renderOrder = 2;
+        this.scene.add(this.brush);
+      }
+      this.brush.visible = !!world;
+      if (world) { this.brush.position.copy(world); this.brush.scale.setScalar(radius); }
     }
 
     boxGeometry(w, h, d) {

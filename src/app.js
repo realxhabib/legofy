@@ -3,17 +3,21 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
-    sample: $('sample'), sample3d: $('sample3d'), sampleStarship: $('sampleStarship'),
-    notice: $('notice'), scanBtn: $('scanBtn'), ai3dBtn: $('ai3dBtn'), ai3dTextured: $('ai3dTextured'),
+    sample3d: $('sample3d'), sampleStarship: $('sampleStarship'), notice: $('notice'), ai3dBtn: $('ai3dBtn'),
+    emptyPhoto: $('emptyPhoto'), emptyTitle: $('emptyTitle'), emptyText: $('emptyText'), emptyStatus: $('emptyStatus'),
+    emptyGenerate: $('emptyGenerate'), emptyChoose: $('emptyChoose'), emptySample: $('emptySample'),
+    edit: $('edit'), editBar: $('editBar'), editLargest: $('editLargest'), editUndo: $('editUndo'),
+    editReset: $('editReset'), editDone: $('editDone'),
+    buyBox: $('buyBox'), buyParts: $('buyParts'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
-    cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
-    order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
+    cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), up: $('up'),
+    order: $('order'), hollow: $('hollow'), singles: $('singles'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
     restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
     speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'),
-    dropOverlay: $('dropOverlay'),
+    dropOverlay: $('dropOverlay'), toast: $('toast'),
   };
 
   const MODEL_TYPES = ['glb', 'gltf', 'obj', 'ply', 'stl', 'usdz'];
@@ -22,6 +26,10 @@
   const state = {
     T: null, scene: null, source: null, model: null, parts: [], partEls: new Map(),
     placed: 0, active: [], playing: false, acc: 0, last: 0, uiDirty: true, lastUi: 0,
+    // Bits the user deleted from the model, as a list of operations replayed on every rebuild:
+    // { sphere: [x, y, z], r } in units of the model's longest side (so they survive a size change),
+    // or { largest: true } to keep only the biggest connected part.
+    edits: [], editing: false, brush: 3, volumeCache: null,
   };
 
   // If three.js never arrives (offline, blocked CDN), say so instead of silently doing nothing.
@@ -50,49 +58,16 @@
       showError('Your browser could not start WebGL, which the 3D build needs.');
       throw err;
     }
+    L._scene = state.scene; // for automated tests
     state.scene.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim());
     // The orbit hint has done its job once someone drags the view.
     state.scene.controls.addEventListener('start', () => { el.hint.remove(); });
-    state.scanner = new L.Scanner(THREE, {
-      root: $('scanner'), live: $('scanLive'), video: $('scanVideo'), overlay: $('scanOverlay'), ring: $('scanRing'),
-      status: $('scanStatus'), preview: $('scanPreview'), cancel: $('scanCancel'), done: $('scanDone'),
-      confirm: $('scanConfirm'), confirmYes: $('confirmYes'), confirmNo: $('confirmNo'),
-      review: $('scanReview'), reviewInfo: $('reviewInfo'), reviewCanvas: $('reviewCanvas'), reviewGrid: $('reviewGrid'),
-      reviewBuild: $('reviewBuild'), reviewMore: $('reviewMore'), reviewCancel: $('reviewCancel'),
-      openings: $('reviewOpenings'),
-    }, useScan);
-    L.scanner = state.scanner; // handy for debugging and automated tests
     if (state.source) build(true);
     requestAnimationFrame(tick);
   };
 
-  el.scanBtn.addEventListener('click', async () => {
-    if (!state.scanner) return notice('Still loading, try again in a moment.', true);
-    notice('');
-    try {
-      await state.scanner.open();
-    } catch (err) {
-      console.error(err);
-      state.scanner.close();
-      notice(err.message || String(err), true);
-    }
-  });
 
-  // A finished walk-around scan (also usable from the console with a hand-built Legofy.Carver).
-  function useScan(carver) {
-    state.source = { kind: 'scan', carver };
-    el.modelCard.querySelector('strong').textContent = 'Your scan';
-    el.modelCard.querySelector('span').textContent = `${carver.count} camera views`;
-    el.modelCard.hidden = false;
-    el.preview.hidden = true;
-    el.dropzone.classList.add('has-image');
-    notice('');
-    showSettingsFor('scan');
-    build(true);
-  }
-  L.useScan = useScan;
-
-  // ---------- input: images and 3D scans ----------
+  // ---------- input: photos (turned into 3D models by the AI) and 3D models ----------
 
   function loadFiles(fileList) {
     const files = [...(fileList || [])];
@@ -101,7 +76,7 @@
     if (files.some((f) => MODEL_TYPES.includes(extOf(f)))) return loadModelFiles(files);
     const image = files.find((f) => f.type.startsWith('image/'));
     if (image) return loadImage(image);
-    if (files.length) notice(`Can't read ${files[0].name}. Use an image, or a 3D model (${MODEL_TYPES.join(', ')}).`, true);
+    if (files.length) notice(`Can't read ${files[0].name}. Use a photo, or a 3D model (${MODEL_TYPES.join(', ')}).`, true);
   }
 
   function loadImage(file) {
@@ -112,80 +87,73 @@
     img.src = url;
   }
 
-  // HEIC: a spatial photo carries two views (left and right eye) that give real depth. Browsers can't
-  // read HEIC themselves, so it's decoded with libheif (fetched on first use).
+  // HEIC (the iPhone's usual photo format): browsers can't read it, so it's decoded with libheif
+  // (fetched on first use). A spatial photo holds two views; the first one is used.
   async function loadHeic(file) {
     if (!state.T) return notice('Still loading, try again in a moment.', true);
     try {
       notice(`Reading ${file.name}…`);
       const libheif = await state.T.loadHeif();
-      const views = await L.decodeHeic(libheif, new Uint8Array(await file.arrayBuffer()));
-      if (!views.length) throw new Error('no images inside');
-      const [left, right] = views;
-      const stereo = right && right.width === left.width && right.height === left.height;
-      if (!stereo) {
-        notice('That HEIC holds one photo, not a spatial pair, so it\'s built like a normal picture.');
-        return useImage(left, left.toDataURL('image/jpeg', 0.85), true);
-      }
-      notice('Spatial photo found: measuring depth. The first time, this downloads a 27 MB AI model…');
-      const depthModel = state.depthModel || (state.depthModel = await state.T.loadDepth());
-      const result = await L.spatialDepth({ left, right, depthModel, onProgress: (m) => notice(m) });
-      notice('Finding the subject…');
-      state.segmenter = state.segmenter || await state.T.loadSegmenter();
-      const subject = L.spatialSubject({ image: result.image, dist: result.dist, segmenter: state.segmenter });
-      const relief = subject
-        ? { dist: subject.dist, mask: subject.mask, f: result.f }
-        : { dist: result.dist, f: result.f };
-      state.source = { kind: 'spatial', img: subject ? subject.image : result.image, relief };
-      el.preview.src = result.image.toDataURL('image/jpeg', 0.85);
-      el.preview.hidden = false;
-      el.modelCard.hidden = true;
-      el.dropzone.classList.add('has-image');
-      notice(result.stereoUsed
-        ? `Spatial photo: depth measured from ${result.stereoUsed.toLocaleString()} matched points between the two views.`
-        : 'Couldn\'t match the two views (too little texture?), so the depth is AI-estimated only.');
-      showSettingsFor('spatial');
-      build(true);
+      const [image] = await L.decodeHeic(libheif, new Uint8Array(await file.arrayBuffer()));
+      if (!image) throw new Error('no images inside');
+      useImage(image, image.toDataURL('image/jpeg', 0.85));
     } catch (err) {
       console.error(err);
       notice(`Couldn't read ${file.name}: ${err.message || err}`, true);
     }
   }
 
-  async function useImage(img, previewSrc, keepNotice) {
-    const source = { kind: 'image', img };
-    state.source = source;
+  // A photo isn't built directly: it's shown, ready for the AI to turn it into a 3D model.
+  function useImage(img, previewSrc) {
+    state.source = { kind: 'image', img };
+    state.model = null;
+    setEditing(false);
+    setPlaying(false);
     el.preview.src = previewSrc;
     el.preview.hidden = false;
     el.modelCard.hidden = true;
     el.dropzone.classList.add('has-image');
-    if (!keepNotice) notice('');
+    notice('');
     showSettingsFor('image');
-    // Pick out the object with the on-device finder (works on busy backgrounds, unlike the plain-
-    // background cut-out); fall back to the original if it isn't available or finds nothing.
-    if (state.T) {
-      try {
-        notice('Finding the object in your photo…');
-        state.segmenter = state.segmenter || await state.T.loadSegmenter();
-        const c = document.createElement('canvas');
-        const k = Math.min(1, 1024 / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
-        c.width = Math.round((img.naturalWidth || img.width) * k);
-        c.height = Math.round((img.naturalHeight || img.height) * k);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const subject = L.spatialSubject({ image: c, dist: null, segmenter: state.segmenter });
-        if (state.source !== source) return; // another image arrived meanwhile
-        if (subject) source.cutout = subject.cutout;
-        notice(subject ? 'Picked the object in the middle of the photo.' : '');
-      } catch (err) {
-        console.error(err);
-        notice('');
-      }
-    }
-    if (state.source === source) build(true);
+    clearParts();
+    showEmpty('photo', previewSrc);
+  }
+
+  // The stage when nothing is built: the welcome screen, or the chosen photo waiting to be generated.
+  function showEmpty(mode, photoSrc) {
+    const photo = mode === 'photo';
+    el.emptyPhoto.hidden = !photo;
+    if (photo) el.emptyPhoto.src = photoSrc;
+    el.empty.querySelector('.empty-bricks').hidden = photo;
+    el.emptyTitle.textContent = photo ? 'Ready to make it 3D' : 'Build anything in LEGO';
+    el.emptyText.textContent = photo
+      ? 'Our AI builds a full 3D model of this object, back included (about a minute), then we turn it into LEGO.'
+      : el.emptyText.dataset.welcome || (el.emptyText.dataset.welcome = el.emptyText.textContent);
+    el.emptyGenerate.hidden = !photo;
+    el.emptyChoose.textContent = photo ? 'Choose another' : 'Choose a photo or 3D model';
+    el.emptyChoose.classList.toggle('primary', !photo);
+    el.emptySample.hidden = photo;
+    el.emptyStatus.hidden = true;
+    el.empty.hidden = false;
+    el.canvas.hidden = true;
+    el.hint.hidden = true;
+    el.controls.hidden = true;
+  }
+
+  function clearParts() {
+    state.parts = [];
+    state.partEls.clear();
+    el.parts.textContent = '';
+    el.partsSummary.textContent = '';
+    el.buyBox.hidden = true;
+    el.life.hidden = true;
   }
 
   function useModel(root, name, extra = {}) {
     state.source = { kind: 'model', root, name, ...extra };
+    state.edits = [];
+    state.volumeCache = null;
+    setEditing(false);
     let triangles = 0;
     root.traverse((o) => {
       if (o.isMesh && o.geometry) triangles += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
@@ -202,16 +170,13 @@
   }
 
   function showSettingsFor(kind) {
-    // 3D models and scans can go much bigger than pictures (whose thickness grows with width).
-    el.cols.max = kind === 'image' || kind === 'spatial' ? 120 : 320;
-    if (+el.cols.value > +el.cols.max) el.cols.value = el.cols.max;
     el.colsOut.value = el.cols.value;
     for (const node of document.querySelectorAll('[data-source]')) {
       node.hidden = !node.dataset.source.split(' ').includes(kind);
     }
   }
 
-  // Scans often come as several files (an .obj with its .mtl and texture, a .gltf with .bin),
+  // 3D files often come as several files (an .obj with its .mtl and texture, a .gltf with .bin),
   // so every dropped file is made available to the loaders by name.
   async function loadModelFiles(files) {
     if (!state.T) return notice('The 3D engine is still loading, try again in a moment.', true);
@@ -323,10 +288,6 @@
     if (item) loadImage(item.getAsFile());
   });
 
-  el.sample.addEventListener('click', () => {
-    const c = sampleImage();
-    useImage(c, c.toDataURL());
-  });
   el.sample3d.addEventListener('click', () => {
     if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)');
   });
@@ -340,30 +301,12 @@
     useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 123.1 });
   });
 
-  // A rubber duck on a plain background: a good subject to inflate into a sculpture.
-  function sampleImage() {
-    const c = document.createElement('canvas');
-    c.width = 600; c.height = 560;
-    const g = c.getContext('2d');
-    g.fillStyle = '#f7f4ee';
-    g.fillRect(0, 0, 600, 560);
-    const ellipse = (x, y, rx, ry, color, rot = 0) => {
-      g.fillStyle = color;
-      g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); g.fill();
-    };
-    ellipse(300, 400, 230, 140, '#f5c518');        // body
-    ellipse(505, 330, 70, 40, '#f5c518', -0.6);    // tail
-    ellipse(230, 200, 125, 120, '#f5c518');        // head
-    ellipse(330, 410, 120, 70, '#e8ae0c', -0.15);  // wing
-    ellipse(110, 225, 70, 28, '#fe8a18', 0.08);    // beak
-    ellipse(205, 165, 24, 28, '#ffffff');          // eye
-    ellipse(198, 170, 13, 16, '#1b2a34');
-    return c;
-  }
+  el.emptyChoose.addEventListener('click', () => el.file.click());
+  el.emptySample.addEventListener('click', () => el.sample3d.click());
 
-  // ---------- AI 3D model (Hunyuan3D v2 on fal.ai, through our /api/hunyuan3d function) ----------
+  // ---------- AI 3D model from a photo (through our /api/generate-3d server function) ----------
 
-  const AI3D_ENDPOINT = 'api/hunyuan3d';
+  const AI3D_ENDPOINT = 'api/generate-3d';
 
   function photoAsJpeg(img, maxSide) {
     const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
@@ -382,29 +325,38 @@
     try {
       r = await fetch(AI3D_ENDPOINT + query, init);
     } catch (err) {
-      throw new Error('The AI service is only available on the deployed site (it needs its server function).');
+      throw new Error('Couldn\'t reach the AI. Check your connection and try again.');
     }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       // No JSON error means there is no server function here (opened from disk, GitHub Pages…).
       throw new Error(data.error || ([404, 405, 501].includes(r.status)
-        ? 'The AI service is only available on the Vercel deployment (it needs its server function).'
+        ? 'The AI only works on the live site.'
         : `The AI service answered ${r.status}.`));
     }
     return data;
   }
 
-  el.ai3dBtn.addEventListener('click', async () => {
+  // Progress goes both under the photo in the panel and on the stage (which is what phones see first).
+  function aiProgress(msg, isError = false) {
+    notice(msg, isError);
+    el.emptyStatus.textContent = msg;
+    el.emptyStatus.hidden = !msg || !el.canvas.hidden;
+    el.emptyStatus.classList.toggle('error', isError);
+  }
+
+  async function generate3d() {
     const src = state.source;
-    if (!src || !src.img) return;
-    el.ai3dBtn.disabled = true;
+    if (!src || !src.img || state.generating) return;
+    state.generating = true;
+    el.ai3dBtn.disabled = el.emptyGenerate.disabled = true;
     const started = Date.now();
     try {
-      notice('Sending your photo to Hunyuan3D…');
+      aiProgress('Sending your photo…');
       const { id } = await callAi3d({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: photoAsJpeg(src.img, 1024), textured: el.ai3dTextured.checked }),
+        body: JSON.stringify({ image: photoAsJpeg(src.img, 1024) }),
       });
       let modelUrl = null;
       while (!modelUrl) {
@@ -413,26 +365,35 @@
         if (secs > 600) throw new Error('It\'s taking too long; try again in a bit.');
         const job = await callAi3d({}, `?id=${encodeURIComponent(id)}`);
         if (job.status === 'COMPLETED') modelUrl = job.modelUrl;
-        else if (job.status === 'IN_QUEUE') notice(`Waiting in line at fal.ai${job.position != null ? ` (position ${job.position + 1})` : ''}… ${secs}s`);
-        else notice(`Building the 3D model… ${secs}s (usually about a minute)`);
+        else if (job.status === 'IN_QUEUE') aiProgress(`Waiting for the AI${job.position ? ` (${job.position} ahead of you)` : ''}… ${secs}s`);
+        else aiProgress(`Building your 3D model… ${secs}s (usually about a minute)`);
       }
-      notice('Downloading the 3D model…');
+      aiProgress('Downloading your 3D model…');
       const r = await fetch(modelUrl);
       if (!r.ok) throw new Error(`couldn't download the model (${r.status})`);
-      const file = new File([await r.blob()], 'AI model (Hunyuan3D).glb', { type: 'model/gltf-binary' });
+      if (state.source !== src) return; // they moved on to something else meanwhile
+      const file = new File([await r.blob()], 'Your 3D model.glb', { type: 'model/gltf-binary' });
       await loadModelFiles([file]);
+      if (state.source.kind === 'model') {
+        state.source.photo = src;
+        state.source.name = 'Your 3D model';
+        el.modelCard.querySelector('strong').textContent = 'Your 3D model';
+        notice('Here\'s your model. Anything extra? Use ✂ Remove parts under the build to delete it.');
+      }
     } catch (err) {
       console.error(err);
-      notice(`AI 3D model failed: ${err.message || err}`, true);
+      aiProgress(`Couldn't make the 3D model: ${err.message || err}`, true);
     } finally {
-      el.ai3dBtn.disabled = false;
+      state.generating = false;
+      el.ai3dBtn.disabled = el.emptyGenerate.disabled = false;
     }
-  });
+  }
+  el.ai3dBtn.addEventListener('click', generate3d);
+  el.emptyGenerate.addEventListener('click', generate3d);
 
   // ---------- settings ----------
 
   el.cols.addEventListener('input', () => { el.colsOut.value = el.cols.value; });
-  el.thick.addEventListener('input', () => { el.thickOut.value = `${el.thick.value}%`; });
   // Text needs size: letters only read once each is several studs tall. Switching to "keep text"
   // makes the build big (and built from plates, see build()); switching back restores the old size.
   let normalSize = +el.cols.value;
@@ -445,57 +406,182 @@
     }
     el.colsOut.value = el.cols.value;
   });
-  for (const input of [el.detail, el.cols, el.thick, el.up, el.order, el.removeBg, el.hollow, el.dither, el.singles]) {
+  // Turning the model changes where everything is, so earlier deletions no longer line up.
+  el.up.addEventListener('change', () => { state.edits = []; });
+  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
-  function build(autoplay) {
-    if (!state.source || !state.scene) return;
+  // The model as voxels, before any deletions. Voxelizing is the slow part, so it's kept while only
+  // the edits, build order or hollowing change.
+  function baseVolume(text, layer) {
+    const key = [state.source.root.uuid, el.cols.value, el.up.value, layer].join('|');
+    if (state.volumeCache?.key !== key) {
+      state.volumeCache = {
+        key,
+        volume: L.voxelizeModel(state.T, state.source.root, {
+          size: +el.cols.value, up: el.up.value, layer, maxTexture: text ? 2048 : 1024,
+        }),
+      };
+    }
+    return state.volumeCache.volume;
+  }
+
+  // Replays the user's deletions on a copy of the voxels.
+  function applyEdits(volume, layer) {
+    if (!state.edits.length) return volume;
+    const { cols, rows, depth } = volume;
+    const voxels = volume.voxels.slice();
+    const size = +el.cols.value;
+    for (const op of state.edits) {
+      if (op.largest) { keepLargest(voxels, cols, rows, depth); continue; }
+      const [cx, cy, cz] = op.sphere.map((v) => v * size);
+      const r = op.r * size, r2 = r * r;
+      const lo = (c, k) => Math.max(0, Math.floor((c - r) / k));
+      for (let level = lo(cy, layer); level < rows && (level + 0.5) * layer <= cy + r; level++) {
+        const dy = (level + 0.5) * layer - cy;
+        for (let z = lo(cz, 1); z < depth && z + 0.5 <= cz + r; z++) {
+          const dz = z + 0.5 - cz;
+          for (let x = lo(cx, 1); x < cols && x + 0.5 <= cx + r; x++) {
+            const dx = x + 0.5 - cx;
+            if (dx * dx + dy * dy + dz * dz <= r2) voxels[(level * depth + z) * cols + x] = -1;
+          }
+        }
+      }
+    }
+    return { ...volume, voxels };
+  }
+
+  // Keeps the biggest group of touching voxels and deletes the rest (stray bits, a separate base…).
+  function keepLargest(voxels, cols, rows, depth) {
+    const label = new Int32Array(voxels.length).fill(-1);
+    const stack = [];
+    let best = -1, bestSize = 0, id = 0;
+    for (let start = 0; start < voxels.length; start++) {
+      if (voxels[start] < 0 || label[start] >= 0) continue;
+      let size = 0;
+      label[start] = id;
+      stack.push(start);
+      while (stack.length) {
+        const i = stack.pop();
+        size++;
+        const x = i % cols, z = Math.floor(i / cols) % depth, level = Math.floor(i / (cols * depth));
+        const next = [
+          x > 0 && i - 1, x < cols - 1 && i + 1,
+          z > 0 && i - cols, z < depth - 1 && i + cols,
+          level > 0 && i - cols * depth, level < rows - 1 && i + cols * depth,
+        ];
+        for (const j of next) {
+          if (j !== false && voxels[j] >= 0 && label[j] < 0) { label[j] = id; stack.push(j); }
+        }
+      }
+      if (size > bestSize) { bestSize = size; best = id; }
+      id++;
+    }
+    for (let i = 0; i < voxels.length; i++) if (label[i] !== best) voxels[i] = -1;
+  }
+
+  function build(autoplay, { keepView = false, showAll = false } = {}) {
+    if (!state.source || state.source.kind !== 'model' || !state.scene) return;
     const text = el.detail.value === 'text';
     const layer = text ? L.PLATE_HEIGHT : L.BRICK_HEIGHT;
-    const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer };
+    let model;
     try {
-      const { kind } = state.source;
-      const picture = el.removeBg.checked && state.source.cutout ? state.source.cutout : state.source.img;
-      state.model = kind === 'image' || kind === 'spatial'
-        ? L.buildSculpture(picture, {
-          ...shared,
-          cols: +el.cols.value,
-          thickness: el.thick.value / 100,
-          removeBackground: el.removeBg.checked,
-          dither: el.dither.checked,
-          relief: state.source.relief || null,
-          layer,
-        })
-        : L.bricksFromVolume(kind === 'scan'
-          ? state.source.carver.volume({ size: +el.cols.value, layer })
-          : L.voxelizeModel(state.T, state.source.root, {
-            size: +el.cols.value, up: el.up.value, layer, maxTexture: text ? 2048 : 1024,
-          }), shared);
+      model = L.bricksFromVolume(applyEdits(baseVolume(text, layer), layer),
+        { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer });
     } catch (err) {
       console.error(err);
       notice(`Couldn't build that: ${err.message || err}`, true);
       return;
     }
-    if (!state.model.bricks.length) {
-      notice('Nothing to build: the subject came out empty. Try turning off "Cut out the subject".', true);
+    if (!model.bricks.length) {
+      notice(state.edits.length ? 'That removed everything. Use Undo to bring parts back.' : 'Nothing to build: the model came out empty.', true);
       return;
     }
-    state.parts = L.partsList(state.model.bricks, state.model.palette, state.model.piece);
+    state.model = model;
+    state.parts = L.partsList(model.bricks, model.palette, model.piece);
     renderParts();
     renderLifeSize();
     el.empty.hidden = true;
     el.canvas.hidden = false;
-    if (el.hint.isConnected) el.hint.hidden = false;
+    if (el.hint.isConnected) el.hint.hidden = state.editing;
     el.controls.hidden = false;
-    el.scrub.max = state.model.bricks.length;
+    el.buyBox.hidden = false;
+    el.scrub.max = model.bricks.length;
     state.placed = 0;
     state.active = [];
     layout();
-    state.scene.setup(state.model);
-    seek(0);
+    state.scene.setup(model, { keepView });
+    seek(showAll ? Infinity : 0);
     setPlaying(autoplay);
   }
+
+  // ---------- removing parts of the model ----------
+
+  function setEditing(on) {
+    state.editing = on;
+    el.editBar.hidden = !on;
+    el.edit.classList.toggle('on', on);
+    el.canvasWrap.classList.toggle('edit-mode', on);
+    if (el.hint.isConnected && state.model) el.hint.hidden = on;
+    if (state.scene) state.scene.setBrush(null);
+    if (on) {
+      setPlaying(false);
+      seek(Infinity);
+      state.scene.controls.autoRotate = false;
+      state.scene.follow = false;
+    }
+    updateEditButtons();
+  }
+
+  function updateEditButtons() {
+    el.editUndo.disabled = el.editReset.disabled = !state.edits.length;
+    for (const b of el.editBar.querySelectorAll('[data-brush]')) {
+      b.setAttribute('aria-checked', String(+b.dataset.brush === state.brush));
+    }
+  }
+
+  function applyEdit(op) {
+    if (op) state.edits.push(op);
+    build(false, { keepView: true, showAll: true });
+    updateEditButtons();
+  }
+
+  el.edit.addEventListener('click', () => setEditing(!state.editing));
+  el.editDone.addEventListener('click', () => setEditing(false));
+  el.editUndo.addEventListener('click', () => { state.edits.pop(); applyEdit(); });
+  el.editReset.addEventListener('click', () => { state.edits = []; applyEdit(); });
+  el.editLargest.addEventListener('click', () => applyEdit({ largest: true }));
+  for (const b of el.editBar.querySelectorAll('[data-brush]')) {
+    b.addEventListener('click', () => { state.brush = +b.dataset.brush; updateEditButtons(); });
+  }
+
+  // A tap (not a drag, which turns the view) removes a ball of bricks around the spot.
+  let press = null;
+  el.canvas.addEventListener('pointerdown', (e) => { press = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  el.canvas.addEventListener('pointerup', (e) => {
+    if (!state.editing || !press || !state.model) return;
+    const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y);
+    press = null;
+    if (moved > 8) return;
+    const hit = state.scene.pick(e.clientX, e.clientY);
+    if (!hit) return;
+    const size = +el.cols.value;
+    applyEdit({ sphere: [hit.x / size, hit.y / size, hit.z / size], r: state.brush / size });
+    if (e.pointerType === 'mouse') showBrush(e);
+  });
+  // Mouse users see the eraser before clicking.
+  let brushFrame = 0;
+  function showBrush(e) {
+    if (!state.editing || e.pointerType !== 'mouse' || e.buttons) { state.scene?.setBrush(null); return; }
+    const hit = state.scene.pick(e.clientX, e.clientY);
+    state.scene.setBrush(hit && hit.world, state.brush);
+  }
+  el.canvas.addEventListener('pointermove', (e) => {
+    if (!state.editing || brushFrame) return;
+    brushFrame = requestAnimationFrame(() => { brushFrame = 0; showBrush(e); });
+  });
+  el.canvas.addEventListener('pointerleave', () => state.scene?.setBrush(null));
 
   function layout() {
     const w = el.canvasWrap.clientWidth;
@@ -569,7 +655,7 @@
       state.scene.setGhost(ghost, now);
       if (state.uiDirty && now - state.lastUi > 60) updateUi(now);
     }
-    state.scene.render(dt);
+    if (!el.canvas.hidden) state.scene.render(dt); // nothing to draw while the photo screen shows
   }
 
   el.play.addEventListener('click', () => setPlaying(!state.playing));
@@ -608,7 +694,8 @@
       const li = document.createElement('li');
       li.innerHTML = `
         <span class="plate" style="--c:${part.color.css}; --w:${part.c}; --h:${part.a}"></span>
-        <span class="pname"><b>${part.size}</b> ${part.color.name}${part.partNum ? ` <small>#${part.partNum}</small>` : ''}</span>
+        <span class="pname"><b>${part.size}</b> ${part.color.name}${part.partNum
+    ? ` <a class="pnum" href="${bricklinkUrl(part)}" target="_blank" rel="noopener" title="See this part on BrickLink">#${part.partNum}</a>` : ''}</span>
         <span class="pcount"></span>
         <span class="pbar"><i></i></span>`;
       el.parts.appendChild(li);
@@ -773,6 +860,58 @@
       el.saveManual.disabled = false;
       el.saveManual.textContent = label;
     }
+  });
+
+  // ---------- buying the parts ----------
+
+  // BrickLink is where LEGO fans buy loose parts: thousands of shops, with a Wanted List upload and
+  // "Easy Buy", which finds the fewest shops that together have the whole list.
+  const BRICKLINK_UPLOAD = 'https://www.bricklink.com/v2/wanted/upload.page';
+
+  function bricklinkUrl(part) {
+    return `https://www.bricklink.com/v2/catalog/catalogitem.page?P=${part.partNum}&idColor=${part.color.bricklinkId}`;
+  }
+
+  // BrickLink's Wanted List XML (part number, BrickLink colour id, quantity).
+  function bricklinkXml() {
+    const items = state.parts
+      .filter((p) => p.partNum && p.color.bricklinkId != null)
+      .map((p) => `  <ITEM>\n    <ITEMTYPE>P</ITEMTYPE>\n    <ITEMID>${p.partNum}</ITEMID>\n` +
+        `    <COLOR>${p.color.bricklinkId}</COLOR>\n    <MINQTY>${p.total}</MINQTY>\n  </ITEM>`);
+    return `<INVENTORY>\n${items.join('\n')}\n</INVENTORY>\n`;
+  }
+
+  let toastTimer;
+  function toast(html) {
+    el.toast.innerHTML = html;
+    el.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.toast.hidden = true; }, 30000);
+  }
+  el.toast.addEventListener('click', (e) => { if (e.target.closest('.toast-close')) el.toast.hidden = true; });
+
+  function buyParts() {
+    if (!state.parts.length) return;
+    const xml = bricklinkXml();
+    const pieces = state.parts.reduce((n, p) => n + p.total, 0);
+    // Start the copy before opening the tab: the page must still have focus for the clipboard.
+    const copied = navigator.clipboard ? navigator.clipboard.writeText(xml).then(() => true, () => false) : Promise.resolve(false);
+    window.open(BRICKLINK_UPLOAD, '_blank', 'noopener');
+    copied.then((ok) => {
+      if (!ok) download(new Blob([xml], { type: 'text/xml' }), 'legofy-bricklink-list.xml');
+      toast(`<button class="toast-close" aria-label="Close">×</button>
+        <b>Your ${pieces.toLocaleString()} pieces (${state.parts.length} kinds) are ${ok ? 'copied' : 'saved as an XML file'}.</b>
+        <ol>
+          <li>On the BrickLink tab, sign in (it's free) and ${ok ? 'paste into the box' : 'upload the file'}.</li>
+          <li>Press <b>Proceed to verify items</b>, then add them to a Wanted List.</li>
+          <li>Open the list and press <b>Easy Buy</b>: it finds shops that have everything, often in one or two orders.</li>
+        </ol>`);
+    });
+  }
+  el.buyParts.addEventListener('click', buyParts);
+  el.buyParts2.addEventListener('click', buyParts);
+  el.saveXml.addEventListener('click', () => {
+    if (state.parts.length) download(new Blob([bricklinkXml()], { type: 'text/xml' }), 'legofy-bricklink-list.xml');
   });
 
   el.saveCsv.addEventListener('click', () => {
