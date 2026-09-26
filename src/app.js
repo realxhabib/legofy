@@ -12,7 +12,7 @@
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
     restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
-    speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'),
+    speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'),
     dropOverlay: $('dropOverlay'),
   };
 
@@ -744,6 +744,34 @@
 
   el.savePng.addEventListener('click', () => {
     state.scene.snapshot((blob) => download(blob, 'legofy-build.png'));
+  });
+
+  // Who may download the instruction manual. Everyone, for now: this is where a payment check
+  // (e.g. Stripe Checkout) plugs in. Return { allowed: true } or { allowed: false, message }.
+  L.manualAccess = L.manualAccess || (async () => ({ allowed: true }));
+
+  el.saveManual.addEventListener('click', async () => {
+    if (!state.model || !state.T) return;
+    el.saveManual.disabled = true;
+    const label = el.saveManual.textContent;
+    try {
+      const access = await L.manualAccess({ model: state.model, source: state.source });
+      if (!access.allowed) { notice(access.message || 'The instructions aren\'t available right now.', true); return; }
+      const jsPDF = await state.T.loadJsPdf();
+      const title = (state.source.name || '').replace(/\.[a-z0-9]+$/i, '').replace(/\s*\((sample|sample model)\)$/, '') || 'Your build';
+      const blob = await L.makeManual({
+        T: state.T, jsPDF, model: state.model, parts: state.parts, title,
+        onProgress: (f, text) => { el.saveManual.textContent = `${Math.round(f * 100)}%`; notice(text); },
+      });
+      download(blob, `${title.replace(/[^\w-]+/g, '-').toLowerCase() || 'legofy'}-instructions.pdf`);
+      notice('Instructions downloaded.');
+    } catch (err) {
+      console.error(err);
+      notice(`Couldn't make the instructions: ${err.message || err}`, true);
+    } finally {
+      el.saveManual.disabled = false;
+      el.saveManual.textContent = label;
+    }
   });
 
   el.saveCsv.addEventListener('click', () => {

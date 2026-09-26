@@ -55,6 +55,20 @@
       this.scene.add(this.ghost);
     }
 
+    // For instruction pictures: pieces before `from` are washed out, so the new ones stand out.
+    fadeBefore(from) {
+      const c = this.tmp.c, white = new this.T.Color(1, 1, 1);
+      this.model.bricks.forEach((b, i) => {
+        c.set(this.model.palette[b.color].css);
+        if (i < from) c.lerp(white, 0.62);
+        const slot = this.slots[i];
+        slot.mesh.setColorAt(slot.index, c);
+        for (let k = 0; k < b.w * b.d; k++) this.studs.setColorAt(slot.stud + k, c);
+      });
+      for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
+    }
+
     setBackground(css) {
       this.scene.background = new this.T.Color(css);
     }
@@ -88,6 +102,7 @@
       }
       baseStuds.castShadow = baseStuds.receiveShadow = true;
       this.world.add(baseStuds);
+      this.baseplate = [base, baseStuds]; // display only; hidden in printed instructions
 
       // Ground to catch shadows.
       const ground = new T.Mesh(new T.CircleGeometry(Math.max(cols, depth, this.height) * 3, 64), new T.ShadowMaterial({ opacity: 0.35 }));

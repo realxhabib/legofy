@@ -154,6 +154,7 @@
             <output id="speedOut"></output>
           </label>
           <span class="spacer"></span>
+          <button id="saveManual" class="primary-outline" title="Step-by-step building instructions as a PDF">Instructions (PDF)</button>
           <button id="savePng" title="Download a picture of the current view">PNG</button>
           <button id="saveCsv" title="Download the parts list in Rebrickable format (part number, colour, quantity) to order the pieces">Parts list</button>
         </div>
@@ -215,6 +216,7 @@
   <script src="src/voxelize.js"></script>
   <script src="src/scan.js"></script>
   <script src="src/spatial.js"></script>
+  <script src="src/manual.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>
   <!-- Loads three.js as a module and hands it to the classic scripts above, so index.html still opens from disk. -->
@@ -265,7 +267,15 @@
     };
     // HEIC decoding (for iPhone spatial photos), fetched the first time one is dropped in.
     const loadHeif = async () => (await import('https://cdn.jsdelivr.net/npm/libheif-js@1.23.2/libheif-wasm/libheif-bundle.mjs')).default();
-    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth, loadHeif });
+    // jsPDF for the instruction manual (self-contained UMD build, loaded on first use).
+    const loadJsPdf = () => window.jspdf ? Promise.resolve(window.jspdf.jsPDF) : new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
+      s.onload = () => resolve(window.jspdf.jsPDF);
+      s.onerror = () => reject(new Error('Could not load the PDF maker.'));
+      document.head.appendChild(s);
+    });
+    Legofy.start({ ...THREE, OrbitControls, RoundedBoxGeometry, loadModelLoaders, loadSegmenter, loadDepth, loadHeif, loadJsPdf });
   </script>
 </body>
 </html>
