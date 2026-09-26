@@ -8,7 +8,7 @@
     emptyGenerate: $('emptyGenerate'), emptyChoose: $('emptyChoose'), emptySample: $('emptySample'),
     edit: $('edit'), editBar: $('editBar'), editLargest: $('editLargest'), editUndo: $('editUndo'),
     editReset: $('editReset'), editDone: $('editDone'),
-    buyBox: $('buyBox'), buyParts: $('buyParts'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
+    buyBox: $('buyBox'), buyParts: $('buyParts'), buyLego: $('buyLego'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), up: $('up'),
     order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'), slopes: $('slopes'), subAssemblies: $('subAssemblies'), subBadge: $('subBadge'),
@@ -1155,8 +1155,8 @@
   }
 
   // BrickLink's Wanted List XML (part number, BrickLink colour id, quantity).
-  function bricklinkXml() {
-    const items = state.parts
+  function bricklinkXml(parts = state.parts) {
+    const items = parts
       .filter((p) => p.partNum && p.color.bricklinkId != null)
       .map((p) => `  <ITEM>\n    <ITEMTYPE>P</ITEMTYPE>\n    <ITEMID>${p.bricklink || p.partNum}</ITEMID>\n` +
         `    <COLOR>${p.color.bricklinkId}</COLOR>\n    <MINQTY>${p.total}</MINQTY>\n  </ITEM>`);
@@ -1172,17 +1172,53 @@
   }
   el.toast.addEventListener('click', (e) => { if (e.target.closest('.toast-close')) el.toast.hidden = true; });
 
-  function buyParts() {
+  // ---------- LEGO Pick a Brick: a list LEGO's own shop turns into a full bag ----------
+  // Pick a Brick's "Upload list" takes a CSV of LEGO element IDs and quantities (up to 400 kinds, 999 of
+  // each) and puts them all in the bag with one press. To earn LEGO affiliate commission, wrap the link:
+  // e.g. Legofy.affiliate.lego = (url) => 'https://click.linksynergy.com/deeplink?id=…&mid=…&murl=' + encodeURIComponent(url)
+  const PICK_A_BRICK = 'https://www.lego.com/pick-a-brick';
+  L.affiliate = L.affiliate || { lego: (url) => url };
+
+  function buyLego() {
     if (!state.parts.length) return;
-    const xml = bricklinkXml();
-    const pieces = state.parts.reduce((n, p) => n + p.total, 0);
+    const have = [], missing = [];
+    for (const p of state.parts) {
+      const id = L.ELEMENTS && L.ELEMENTS[p.partNum] && L.ELEMENTS[p.partNum][p.color.name];
+      if (id) have.push({ p, id }); else missing.push(p);
+    }
+    state.pabMissing = missing;
+    window.open(L.affiliate.lego(PICK_A_BRICK), '_blank', 'noopener');
+    // One file per 400 kinds (Pick a Brick's limit); more than 999 of a piece goes over two lines.
+    const rows = [];
+    for (const { p, id } of have) for (let left = p.total; left > 0; left -= 999) rows.push(`${id},${Math.min(999, left)}`);
+    const files = [];
+    for (let i = 0; i < rows.length; i += 400) files.push(rows.slice(i, i + 400));
+    const names = files.map((_, k) => (files.length > 1 ? `legofy-pick-a-brick-${k + 1}.csv` : 'legofy-pick-a-brick.csv'));
+    files.forEach((chunk, k) => download(new Blob([`elementId,quantity\n${chunk.join('\n')}\n`], { type: 'text/csv' }), names[k]));
+    const pieces = have.reduce((n, { p }) => n + p.total, 0);
+    toast(`<button class="toast-close" aria-label="Close">×</button>
+      <b>Your Pick a Brick list is downloaded: ${pieces.toLocaleString()} pieces, ${have.length} kinds.</b>
+      <ol>
+        <li>On the LEGO tab, open <b>Pick a Brick</b> and press <b>Upload list</b>.</li>
+        <li>Choose <b>${names.join('</b>, then <b>')}</b> (in Downloads, or Files on a phone).</li>
+        <li>Press <b>Pick selected pieces</b>: they all go in your bag. Check out as usual.</li>
+      </ol>
+      <p class="fine">Pick a Brick doesn't stock every piece in every colour, and anything it doesn't have is
+        left out of the bag${missing.length ? ` (${missing.length} kinds aren't sold as LEGO elements at all)` : ''}.
+        <button type="button" class="link-btn" data-buy="bricklink-rest">${missing.length ? 'Get those on BrickLink' : 'Or buy it all on BrickLink'}</button></p>`);
+  }
+
+  function buyParts(parts = state.parts) {
+    if (!parts.length) return;
+    const xml = bricklinkXml(parts);
+    const pieces = parts.reduce((n, p) => n + p.total, 0);
     // Start the copy before opening the tab: the page must still have focus for the clipboard.
     const copied = navigator.clipboard ? navigator.clipboard.writeText(xml).then(() => true, () => false) : Promise.resolve(false);
     window.open(BRICKLINK_UPLOAD, '_blank', 'noopener');
     copied.then((ok) => {
       if (!ok) download(new Blob([xml], { type: 'text/xml' }), 'legofy-bricklink-list.xml');
       toast(`<button class="toast-close" aria-label="Close">×</button>
-        <b>Your ${pieces.toLocaleString()} pieces (${state.parts.length} kinds) are ${ok ? 'copied' : 'saved as an XML file'}.</b>
+        <b>Your ${pieces.toLocaleString()} pieces (${parts.length} kinds) are ${ok ? 'copied' : 'saved as an XML file'}.</b>
         <ol>
           <li>On the BrickLink tab, sign in (it's free) and ${ok ? 'paste into the box' : 'upload the file'}.</li>
           <li>Press <b>Proceed to verify items</b>, then add them to a Wanted List.</li>
@@ -1190,8 +1226,25 @@
         </ol>`);
     });
   }
-  el.buyParts.addEventListener('click', buyParts);
-  el.buyParts2.addEventListener('click', buyParts);
+  el.buyParts.addEventListener('click', () => buyParts());
+  el.buyLego.addEventListener('click', buyLego);
+  // The button under the build: choose where to buy.
+  el.buyParts2.addEventListener('click', () => {
+    if (!state.parts.length) return;
+    toast(`<button class="toast-close" aria-label="Close">×</button>
+      <b>Where do you want to buy the ${state.parts.reduce((n, p) => n + p.total, 0).toLocaleString()} pieces?</b>
+      <div class="buy-choice">
+        <button type="button" class="buy-btn" data-buy="lego">🛒 LEGO Pick a Brick<small>New pieces from LEGO, all into your bag with one upload</small></button>
+        <button type="button" class="buy-btn alt" data-buy="bricklink">BrickLink<small>Every piece and colour, from thousands of shops</small></button>
+      </div>`);
+  });
+  el.toast.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-buy]');
+    if (!b) return;
+    if (b.dataset.buy === 'lego') buyLego();
+    else if (b.dataset.buy === 'bricklink') buyParts();
+    else if (b.dataset.buy === 'bricklink-rest') buyParts(state.pabMissing && state.pabMissing.length ? state.pabMissing : state.parts);
+  });
   el.saveXml.addEventListener('click', () => {
     if (state.parts.length) download(new Blob([bricklinkXml()], { type: 'text/xml' }), 'legofy-bricklink-list.xml');
   });

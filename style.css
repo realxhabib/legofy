@@ -434,6 +434,10 @@ canvas:active { cursor: grabbing; }
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), 0 6px 16px -8px rgba(35, 132, 61, 0.8);
 }
 .buy-btn:hover { filter: brightness(1.06); }
+.buy-btn.alt { background: var(--field); color: var(--ink); border: 1px solid var(--line); box-shadow: none; font-weight: 600; }
+.buy-choice { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.buy-choice .buy-btn { height: auto; padding: 10px 14px; text-align: left; }
+.buy-choice small { display: block; font-weight: 400; font-size: 12px; opacity: 0.85; }
 .buttons button.buy {
   background: #23843d; color: #fff; border-color: transparent; font-weight: 600;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2);

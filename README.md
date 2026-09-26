@@ -17,7 +17,13 @@ don't want, download step-by-step instructions, and order every piece.
 3. **Adjust:** size (longest side, 12–320 studs), **Keep text & fine detail** (see below), build order,
    hollow, 1×1s only.
 4. **Get the pieces:**
-   - **🛒 Buy the parts** copies the parts list as a BrickLink Wanted List and opens BrickLink's upload page
+   - **🛒 Fill a LEGO Pick a Brick bag** downloads the list as LEGO element IDs and quantities
+     (`elementId,quantity`, the format of Pick a Brick's **Upload list**, split into files of 400 kinds)
+     and opens Pick a Brick: upload it, press **Pick selected pieces**, and everything LEGO stocks goes in
+     the bag. Upload list is live in the US, Canada, UK and Germany. Element IDs come from Rebrickable
+     (`L.ELEMENTS` in `src/parts-data.js`). For LEGO affiliate commission (Rakuten, about 3%), set
+     `Legofy.affiliate.lego` to a function that wraps the Pick a Brick URL in your tracking link.
+   - **BrickLink** copies the parts list as a BrickLink Wanted List and opens BrickLink's upload page
      (sign in, paste, add to a Wanted List, then **Easy Buy** finds shops that have everything). If the
      clipboard isn't allowed, the list downloads as an XML file instead. Each row in the parts list also
      links to that part in that colour on BrickLink.
