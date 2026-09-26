@@ -4,82 +4,91 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Legofy — turn images and 3D scans into brick sculptures</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@800;900&display=swap" rel="stylesheet">
+  <meta name="theme-color" content="#d01012">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <div class="logo" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-    <h1>Legofy</h1>
-    <p class="tagline">Drop in an image or a 3D scan and watch it get built as a brick sculpture, one brick at a time.</p>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Legofy home">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="wordmark">Legofy</span>
+    </a>
+    <p class="tagline">Turn photos, scans and 3D models into real LEGO&reg; builds, with step-by-step instructions.</p>
   </header>
 
   <main>
     <aside class="panel">
-      <label id="dropzone" class="dropzone" tabindex="0">
-        <!-- No accept filter: iOS greys out 3D file types it doesn't recognise. -->
-        <input id="file" type="file" multiple hidden>
-        <img id="preview" alt="" hidden>
-        <div id="modelCard" class="model-card" hidden>
-          <div class="cube" aria-hidden="true"></div>
-          <strong></strong>
-          <span></span>
+      <section class="card" aria-labelledby="startTitle">
+        <h2 id="startTitle" class="card-title"><span class="step">1</span> Start with something</h2>
+        <label id="dropzone" class="dropzone" tabindex="0">
+          <!-- No accept filter: iOS greys out 3D file types it doesn't recognise. -->
+          <input id="file" type="file" multiple hidden>
+          <img id="preview" alt="" hidden>
+          <div id="modelCard" class="model-card" hidden>
+            <div class="cube" aria-hidden="true"></div>
+            <strong></strong>
+            <span></span>
+          </div>
+          <div class="drop-hint">
+            <span class="drop-icon" aria-hidden="true"></span>
+            <strong>Drop a photo or 3D file</strong>
+            <span>or click to choose · paste works too</span>
+            <span class="formats">Photos, iPhone spatial photos (HEIC), GLB, OBJ, PLY, STL, USDZ</span>
+          </div>
+        </label>
+        <button id="scanBtn" class="scan-btn" type="button">
+          <span class="scan-icon" aria-hidden="true"></span>
+          <span><strong>Scan a real object</strong><small>Walk around it with your phone camera</small></span>
+        </button>
+        <p id="notice" class="notice" hidden></p>
+        <div class="ai3d" data-source="image spatial" hidden>
+          <button id="ai3dBtn" type="button" class="ai-btn"><span aria-hidden="true">✦</span> Make a full 3D model with AI</button>
+          <label class="check"><input id="ai3dTextured" type="checkbox" checked> With colours (about 3× the cost)</label>
+          <p class="fine">Sends this photo to Hunyuan3D on fal.ai, which models the whole object, back included,
+            in about a minute. Works best with one object on a plain background.</p>
         </div>
-        <div class="drop-hint">
-          <strong>Drop an image or 3D scan here</strong>
-          <span>or click to choose · paste works too</span>
-          <span class="formats">3D: GLB, OBJ (+ .mtl and texture), PLY, STL, USDZ · iPhone spatial photos (HEIC)</span>
+        <div class="samples">
+          <span>Try a sample</span>
+          <button id="sample" class="chip" type="button">🦆 Duck picture</button>
+          <button id="sample3d" class="chip" type="button">🍄 3D toadstool</button>
+          <button id="sampleStarship" class="chip" type="button">🚀 Life-size Starship</button>
         </div>
-      </label>
-      <button id="scanBtn" class="scan-btn" type="button">
-        <span class="scan-icon" aria-hidden="true"></span>
-        <span><strong>Scan a real object</strong><small>Walk around it with your phone camera</small></span>
-      </button>
-      <p id="notice" class="notice" hidden></p>
-      <div class="ai3d" data-source="image spatial" hidden>
-        <button id="ai3dBtn" type="button" class="ai-btn">Make a real 3D model of this with AI</button>
-        <label class="check"><input id="ai3dTextured" type="checkbox" checked> With colors (textured, about 3× the cost)</label>
-        <p class="fine">Sends this photo to Hunyuan3D on fal.ai, which models the whole object (including the back)
-          in about a minute. Works best with one object on a plain background.</p>
-      </div>
-      <div class="samples">
-        Try a sample:
-        <button id="sample" class="link-btn" type="button">duck picture</button> ·
-        <button id="sample3d" class="link-btn" type="button">3D toadstool</button> ·
-        <button id="sampleStarship" class="link-btn" type="button">life-size Starship</button>
-      </div>
+        <details class="howto">
+          <summary>Tips for a good scan</summary>
+          <ol>
+            <li>Put the object on a table in even light, against a background that looks different from it.</li>
+            <li>Tap <b>Scan a real object</b>, allow camera and motion access, then tap the object on screen.</li>
+            <li>Walk slowly all the way around it, keeping the whole object in view. Then do a second, lower
+              lap from the side (crouch for things on the floor): views from above can't see how tall it is.</li>
+            <li>Keep the object filling a good part of the screen, and move slowly so frames aren't blurry.</li>
+            <li>Has an opening (a shoe, a cup)? Include a few shots looking down into it, so the on-device depth
+              model can see how deep it goes.</li>
+            <li>Tap <b>Done</b>, check the 3D preview, and hide any ⚠ captures that make it worse.
+              Everything happens on your phone, and nothing is uploaded.</li>
+          </ol>
+          <p>Already have a scan from an app like Scaniverse or Polycam? Export it as GLB and drop it above.</p>
+        </details>
+      </section>
 
-      <details class="howto">
-        <summary>Tips for a good scan</summary>
-        <ol>
-          <li>Put the object on a table in even light, against a background that looks different from it.</li>
-          <li>Tap <b>Scan a real object</b>, allow camera and motion access, then tap the object on screen.</li>
-          <li>Walk slowly all the way around it, keeping the whole object in view. Then do a second, lower
-            lap from the side (crouch for things on the floor): views from above can't see how tall it is.</li>
-          <li>Keep the object filling a good part of the screen, and move slowly so frames aren't blurry.</li>
-          <li>Has an opening (a shoe, a cup)? Include a few shots looking down into it, so the on-device depth
-            model can see how deep it goes.</li>
-          <li>Tap <b>Done</b>, check the 3D preview, and hide any ⚠ captures that make it worse.
-            Everything happens on your phone, and nothing is uploaded.</li>
-        </ol>
-        <p>Already have a scan from an app like Scaniverse or Polycam? Export it as GLB and drop it above.</p>
-      </details>
-
-      <fieldset id="settings">
-        <legend>Sculpture</legend>
+      <section id="settings" class="card" aria-labelledby="adjustTitle">
+        <h2 id="adjustTitle" class="card-title"><span class="step">2</span> Adjust the build</h2>
         <label class="row">
-          <span><span data-source="image spatial">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
+          <span class="row-label"><span data-source="image spatial">Width</span><span data-source="model scan" hidden>Size (longest side)</span>
             <output id="colsOut">36</output> studs</span>
           <input id="cols" type="range" min="12" max="120" step="4" value="36">
         </label>
         <label class="row">
-          <span>Detail</span>
+          <span class="row-label">Detail</span>
           <select id="detail">
             <option value="normal">Normal: bricks</option>
             <option value="text">Keep text &amp; fine detail: large, built from plates</option>
           </select>
         </label>
         <label class="row" data-source="model" hidden>
-          <span>Which way is up?</span>
+          <span class="row-label">Which way is up?</span>
           <select id="up">
             <option value="y">Y up (most apps, GLB)</option>
             <option value="z">Z up (some OBJ / STL)</option>
@@ -90,11 +99,11 @@
           </select>
         </label>
         <label class="row" data-source="image">
-          <span>Thickness <output id="thickOut">60%</output> <small>(0% = flat wall)</small></span>
+          <span class="row-label">Thickness <output id="thickOut">60%</output> <small>(0% = flat wall)</small></span>
           <input id="thick" type="range" min="0" max="100" step="5" value="60">
         </label>
         <label class="row">
-          <span>Build order</span>
+          <span class="row-label">Build order</span>
           <select id="order">
             <option value="sweep">Layer by layer, back to front</option>
             <option value="zigzag">Layer by layer, zigzag</option>
@@ -103,25 +112,27 @@
             <option value="random">Layer by layer, random</option>
           </select>
         </label>
-        <label class="check" data-source="image spatial"><input id="removeBg" type="checkbox" checked> Cut out the subject (remove plain background)</label>
-        <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer bricks)</label>
-        <label class="check" data-source="image spatial"><input id="dither" type="checkbox"> Dither colors (smoother photos)</label>
-        <label class="check"><input id="singles" type="checkbox"> 1 × 1 bricks only</label>
-      </fieldset>
-
-      <section id="life" class="life" hidden>
-        <h2>At real size</h2>
-        <label class="row">
-          <span>How tall is the real thing? (meters)</span>
-          <input id="realHeight" type="number" min="0.01" step="any" inputmode="decimal">
-        </label>
-        <dl id="lifeStats"></dl>
-        <p class="fine" id="lifeNote"></p>
+        <div class="checks">
+          <label class="check" data-source="image spatial"><input id="removeBg" type="checkbox" checked> Cut out the subject</label>
+          <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer pieces)</label>
+          <label class="check" data-source="image spatial"><input id="dither" type="checkbox"> Dither colours (smoother photos)</label>
+          <label class="check"><input id="singles" type="checkbox"> 1 × 1 pieces only</label>
+        </div>
       </section>
 
-      <section class="parts">
-        <h2>Parts <small id="partsSummary"></small></h2>
+      <section class="card parts" aria-labelledby="partsTitle">
+        <h2 id="partsTitle" class="card-title"><span class="step">3</span> Get the pieces</h2>
+        <p class="parts-summary"><small id="partsSummary"></small></p>
         <ol id="parts"></ol>
+        <details id="life" class="life" hidden>
+          <summary>How many at real size?</summary>
+          <label class="row">
+            <span class="row-label">How tall is the real thing? (meters)</span>
+            <input id="realHeight" type="number" min="0.01" step="any" inputmode="decimal">
+          </label>
+          <dl id="lifeStats"></dl>
+          <p class="fine" id="lifeNote"></p>
+        </details>
       </section>
     </aside>
 
@@ -129,7 +140,13 @@
       <div id="canvasWrap" class="canvas-wrap">
         <div id="empty" class="empty">
           <div class="empty-bricks" aria-hidden="true"><i></i><i></i><i></i></div>
-          <p>Your build will appear here.</p>
+          <h2>Build anything in LEGO</h2>
+          <p>Drop in a photo, scan an object with your phone, or load a 3D model. You'll get a brick-by-brick
+            build, a parts list of real LEGO pieces, and printable instructions.</p>
+          <div class="empty-actions">
+            <button type="button" class="big-btn primary" onclick="document.getElementById('file').click()">Choose a photo</button>
+            <button type="button" class="big-btn" onclick="document.getElementById('sample3d').click()">See an example</button>
+          </div>
         </div>
         <canvas id="canvas" hidden></canvas>
         <p id="hint" class="hint" hidden>Drag to orbit · scroll to zoom · right-drag to pan</p>
@@ -143,24 +160,33 @@
         </div>
         <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Build progress">
         <div class="buttons">
-          <button id="restart" title="Restart (Home)">⏮</button>
-          <button id="back" title="Previous brick (←)">◀</button>
-          <button id="play" class="primary" title="Play / pause (Space)">▶ Build</button>
-          <button id="step" title="Next brick (→)">▶</button>
-          <button id="finish" title="Finish (End)">⏭</button>
-          <button id="view" title="Reset camera">⟲ View</button>
+          <div class="transport">
+            <button id="restart" class="icon" title="Restart (Home)" aria-label="Restart">⏮</button>
+            <button id="back" class="icon" title="Previous piece (←)" aria-label="Previous piece">◀</button>
+            <button id="play" class="primary" title="Play / pause (Space)">▶ Build</button>
+            <button id="step" class="icon" title="Next piece (→)" aria-label="Next piece">▶</button>
+            <button id="finish" class="icon" title="Finish (End)" aria-label="Finish">⏭</button>
+          </div>
           <label class="speed">Speed
             <input id="speed" type="range" min="0" max="100" value="55">
             <output id="speedOut"></output>
           </label>
+          <button id="view" class="ghost" title="Reset camera">⟲ View</button>
           <span class="spacer"></span>
-          <button id="saveManual" class="primary-outline" title="Step-by-step building instructions as a PDF">Instructions (PDF)</button>
-          <button id="savePng" title="Download a picture of the current view">PNG</button>
-          <button id="saveCsv" title="Download the parts list in Rebrickable format (part number, colour, quantity) to order the pieces">Parts list</button>
+          <div class="downloads">
+            <button id="saveManual" class="accent" title="Step-by-step building instructions as a PDF">📘 Instructions (PDF)</button>
+            <button id="saveCsv" class="ghost" title="Parts list in Rebrickable format (part number, colour, quantity) for ordering">Parts list</button>
+            <button id="savePng" class="ghost" title="Download a picture of the current view">PNG</button>
+          </div>
         </div>
       </div>
     </section>
   </main>
+
+  <footer class="footer">
+    <p>Every piece is a real LEGO&reg; brick or plate in a colour LEGO has produced (data: Rebrickable).
+      LEGO&reg; is a trademark of the LEGO Group, which does not sponsor or endorse this site.</p>
+  </footer>
 
   <div id="scanner" class="scanner" hidden>
     <div id="scanLive">

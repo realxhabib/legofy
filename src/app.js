@@ -331,6 +331,7 @@
     if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)');
   });
   el.sampleStarship.addEventListener('click', () => {
+    el.life.open = true;
     if (!state.T) return;
     // Tall and thin: build it big enough that the fins, flaps and vents survive as bricks.
     showSettingsFor('model');
