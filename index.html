@@ -39,6 +39,10 @@
             <span class="formats">Photos (JPEG, PNG, HEIC) · 3D models (GLB, OBJ, PLY, STL, USDZ)</span>
           </div>
         </label>
+        <button id="walkBtn" type="button" class="walk-btn">
+          <span class="walk-icon" aria-hidden="true">📷</span>
+          <span><strong>Walk around it with your camera</strong><small>Snap the front, sides, back and top for the most accurate model</small></span>
+        </button>
         <p id="notice" class="notice" hidden></p>
         <div class="ai3d" data-source="image" hidden>
           <button id="ai3dBtn" type="button" class="ai-btn"><span aria-hidden="true">✦</span> Generate 3D model</button>
@@ -140,6 +144,7 @@
           <div class="empty-actions">
             <button id="emptyGenerate" type="button" class="big-btn primary" hidden>✦ Generate 3D model</button>
             <button id="emptyChoose" type="button" class="big-btn primary">Choose a photo or 3D model</button>
+            <button id="emptyWalk" type="button" class="big-btn">📷 Walk around it with the camera</button>
             <button id="emptySample" type="button" class="big-btn">See an example</button>
           </div>
           <p id="emptyStatus" class="empty-status" hidden></p>
@@ -246,6 +251,7 @@
   <script src="src/voxelize.js"></script>
   <script src="src/buildcheck.js"></script>
   <script src="src/heic.js"></script>
+  <script src="src/capture.js"></script>
   <script src="src/manual.js"></script>
   <script src="src/scene3d.js"></script>
   <script src="src/app.js"></script>

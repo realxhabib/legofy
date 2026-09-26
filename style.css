@@ -506,6 +506,60 @@ canvas:active { cursor: grabbing; }
 }
 .bc-act:hover { border-color: var(--muted); }
 
+/* ---------- Walk-around capture ---------- */
+.walk-btn {
+  display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer;
+  padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--field); color: var(--ink);
+}
+.walk-btn:hover { border-color: var(--accent); }
+.walk-btn strong { display: block; font-size: 14px; }
+.walk-btn small { display: block; color: var(--muted); font-size: 12px; }
+.walk-icon { font-size: 24px; }
+body.capturing { overflow: hidden; }
+.capture-screen { position: fixed; inset: 0; z-index: 50; background: #000; color: #fff; }
+.capture-screen video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.capture-screen.flash::after { content: ""; position: absolute; inset: 0; background: #fff; opacity: 0.7; }
+.cap-frame {
+  position: absolute; left: 10%; right: 10%; top: 20%; bottom: 30%; border-radius: 18px;
+  border: 2px dashed rgba(255, 255, 255, 0.7); pointer-events: none;
+}
+.cap-top {
+  position: absolute; top: 0; left: 0; right: 0; padding: 14px 16px 30px; text-align: center;
+  background: linear-gradient(rgba(0, 0, 0, 0.7), transparent);
+}
+.cap-step { margin: 0; font-weight: 800; font-size: 18px; }
+.cap-tip { margin: 4px 0 0; font-size: 14px; opacity: 0.9; }
+.cap-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0; display: flex; flex-direction: column; gap: 12px;
+  padding: 30px 16px calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+}
+.cap-thumbs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cap-thumb {
+  aspect-ratio: 3 / 4; border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.35); cursor: pointer;
+  background: rgba(255, 255, 255, 0.1) center / cover no-repeat; color: #fff; font-size: 10px; font-weight: 700;
+  display: flex; align-items: flex-end; justify-content: center; padding: 3px; overflow: hidden;
+}
+.cap-thumb span { background: rgba(0, 0, 0, 0.55); border-radius: 4px; padding: 1px 4px; }
+.cap-thumb.current { border-color: var(--yellow); }
+.cap-thumb.done { border-color: #fff; }
+.cap-buttons { display: flex; align-items: center; justify-content: space-between; }
+.cap-buttons button {
+  min-width: 84px; height: 42px; border-radius: 12px; border: 0; cursor: pointer; font-weight: 600;
+  background: rgba(255, 255, 255, 0.18); color: #fff;
+}
+.cap-buttons button:disabled { opacity: 0.4; }
+.cap-buttons .cap-shutter {
+  min-width: 0; width: 74px; height: 74px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.35);
+}
+.cap-shutter:active { transform: scale(0.94); }
+.cap-done { height: 46px; border-radius: 12px; border: 0; cursor: pointer; font-weight: 700; font-size: 15px; background: var(--accent); color: #fff; }
+.cap-done:disabled { opacity: 0.4; }
+.cap-error {
+  position: absolute; left: 16px; right: 16px; top: 40%; margin: 0; padding: 14px; border-radius: 12px;
+  background: rgba(0, 0, 0, 0.8); text-align: center;
+}
+
 /* ---------- Checkout ---------- */
 .modal {
   position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px;

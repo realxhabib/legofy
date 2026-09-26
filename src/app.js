@@ -139,6 +139,7 @@
     el.emptyChoose.textContent = photo ? 'Choose another' : 'Choose a photo or 3D model';
     el.emptyChoose.classList.toggle('primary', !photo);
     el.emptySample.hidden = photo;
+    $('emptyWalk').hidden = photo;
     el.emptyStatus.hidden = true;
     el.empty.hidden = false;
     el.canvas.hidden = true;
@@ -309,6 +310,19 @@
   });
 
   el.emptyChoose.addEventListener('click', () => el.file.click());
+
+  // Walk around the object with the camera: a photo of each side, straight into the photo screen.
+  async function walkAround() {
+    const shots = await L.walkAround();
+    if (!shots || !shots.front) return;
+    useImage(shots.front, shots.front.toDataURL('image/jpeg', 0.85));
+    for (const [view, canvas] of Object.entries(shots)) if (view !== 'front') state.source.views[view] = canvas;
+    renderViewSlots();
+    const n = Object.keys(shots).length;
+    notice(`${n} ${n === 1 ? 'photo' : 'photos'} ready. Press Generate 3D model.`);
+  }
+  $('walkBtn').addEventListener('click', walkAround);
+  $('emptyWalk').addEventListener('click', walkAround);
   el.emptySample.addEventListener('click', () => el.sample3d.click());
 
   // ---------- payments (Stripe embedded Checkout, through /api/checkout) ----------
