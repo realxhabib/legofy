@@ -51,8 +51,8 @@ becomes the serverless function.
 provider's name, and the key never reaches the browser. The function holds the key, only accepts requests
 from the site itself, and uses the provider's queue so slow generations don't hit the function's time
 limit. To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**,
-add `FAL_KEY` and redeploy. Each generation costs about $0.48 (textured, since the bricks take their
-colours from it) and anyone who can open the site can start one, so set a spending limit with the
+add `FAL_KEY` and redeploy. Each generation costs about $0.375, or $0.525 when extra photos are sent
+(textured, since the bricks take their colours from it), and anyone who can open the site can start one, so set a spending limit with the
 provider. Payments can gate this later (see Stripe below).
 
 ## Build checks
