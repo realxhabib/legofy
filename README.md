@@ -94,6 +94,21 @@ puffed-up guess used for ordinary pictures:
 
 A HEIC with a single photo is built like any other picture.
 
+## AI 3D models (Hunyuan3D)
+
+For a picture or spatial photo, **Make a real 3D model of this with AI** sends the photo to
+[Hunyuan3D v2 on fal.ai](https://fal.ai/models/fal-ai/hunyuan3d/v2), which models the whole object,
+back included, in about a minute. The GLB it returns is built like any dropped-in 3D file.
+
+The fal API key never reaches the browser: the page talks to a Vercel serverless function
+(`api/hunyuan3d.js`) that holds it, only accepts requests from the site itself, and uses fal's queue so
+slow generations don't hit the function's time limit.
+
+To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**, add
+`FAL_KEY` and redeploy. fal charges per generation: $0.16 for a plain mesh, three times that with
+colours (the default, since bricks need colours). Anyone who can open your site can spend credits this
+way, so set a spending limit in your fal account.
+
 ## At real size
 
 Under the settings, **At real size** takes a real-world height and works out what it would take to build

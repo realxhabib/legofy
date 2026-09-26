@@ -4,7 +4,7 @@
   const el = {
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
     sample: $('sample'), sample3d: $('sample3d'), sampleStarship: $('sampleStarship'),
-    notice: $('notice'), scanBtn: $('scanBtn'),
+    notice: $('notice'), scanBtn: $('scanBtn'), ai3dBtn: $('ai3dBtn'), ai3dTextured: $('ai3dTextured'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), thick: $('thick'), thickOut: $('thickOut'), up: $('up'),
     order: $('order'), removeBg: $('removeBg'), hollow: $('hollow'), dither: $('dither'), singles: $('singles'),
@@ -338,6 +338,74 @@
     ellipse(198, 170, 13, 16, '#1b2a34');
     return c;
   }
+
+  // ---------- AI 3D model (Hunyuan3D v2 on fal.ai, through our /api/hunyuan3d function) ----------
+
+  const AI3D_ENDPOINT = 'api/hunyuan3d';
+
+  function photoAsJpeg(img, maxSide) {
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    const k = Math.min(1, maxSide / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * k); c.height = Math.round(h * k);
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; // transparent pictures get a plain white background
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+
+  async function callAi3d(init, query = '') {
+    let r;
+    try {
+      r = await fetch(AI3D_ENDPOINT + query, init);
+    } catch (err) {
+      throw new Error('The AI service is only available on the deployed site (it needs its server function).');
+    }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      // No JSON error means there is no server function here (opened from disk, GitHub Pages…).
+      throw new Error(data.error || ([404, 405, 501].includes(r.status)
+        ? 'The AI service is only available on the Vercel deployment (it needs its server function).'
+        : `The AI service answered ${r.status}.`));
+    }
+    return data;
+  }
+
+  el.ai3dBtn.addEventListener('click', async () => {
+    const src = state.source;
+    if (!src || !src.img) return;
+    el.ai3dBtn.disabled = true;
+    const started = Date.now();
+    try {
+      notice('Sending your photo to Hunyuan3D…');
+      const { id } = await callAi3d({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: photoAsJpeg(src.img, 1024), textured: el.ai3dTextured.checked }),
+      });
+      let modelUrl = null;
+      while (!modelUrl) {
+        await new Promise((r) => setTimeout(r, 2500));
+        const secs = Math.round((Date.now() - started) / 1000);
+        if (secs > 600) throw new Error('It\'s taking too long; try again in a bit.');
+        const job = await callAi3d({}, `?id=${encodeURIComponent(id)}`);
+        if (job.status === 'COMPLETED') modelUrl = job.modelUrl;
+        else if (job.status === 'IN_QUEUE') notice(`Waiting in line at fal.ai${job.position != null ? ` (position ${job.position + 1})` : ''}… ${secs}s`);
+        else notice(`Building the 3D model… ${secs}s (usually about a minute)`);
+      }
+      notice('Downloading the 3D model…');
+      const r = await fetch(modelUrl);
+      if (!r.ok) throw new Error(`couldn't download the model (${r.status})`);
+      const file = new File([await r.blob()], 'AI model (Hunyuan3D).glb', { type: 'model/gltf-binary' });
+      await loadModelFiles([file]);
+    } catch (err) {
+      console.error(err);
+      notice(`AI 3D model failed: ${err.message || err}`, true);
+    } finally {
+      el.ai3dBtn.disabled = false;
+    }
+  });
 
   // ---------- settings ----------
 

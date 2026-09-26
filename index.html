@@ -35,6 +35,12 @@
         <span><strong>Scan a real object</strong><small>Walk around it with your phone camera</small></span>
       </button>
       <p id="notice" class="notice" hidden></p>
+      <div class="ai3d" data-source="image spatial" hidden>
+        <button id="ai3dBtn" type="button" class="ai-btn">Make a real 3D model of this with AI</button>
+        <label class="check"><input id="ai3dTextured" type="checkbox" checked> With colors (textured, about 3× the cost)</label>
+        <p class="fine">Sends this photo to Hunyuan3D on fal.ai, which models the whole object (including the back)
+          in about a minute. Works best with one object on a plain background.</p>
+      </div>
       <div class="samples">
         Try a sample:
         <button id="sample" class="link-btn" type="button">duck picture</button> ·
