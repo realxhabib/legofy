@@ -480,7 +480,7 @@
       notice('Nothing to build: the subject came out empty. Try turning off "Cut out the subject".', true);
       return;
     }
-    state.parts = L.partsList(state.model.bricks, state.model.palette);
+    state.parts = L.partsList(state.model.bricks, state.model.palette, state.model.piece);
     renderParts();
     renderLifeSize();
     el.empty.hidden = true;
@@ -607,7 +607,7 @@
       const li = document.createElement('li');
       li.innerHTML = `
         <span class="plate" style="--c:${part.color.css}; --w:${part.c}; --h:${part.a}"></span>
-        <span class="pname"><b>${part.size}</b> ${part.color.name}</span>
+        <span class="pname"><b>${part.size}</b> ${part.color.name}${part.partNum ? ` <small>#${part.partNum}</small>` : ''}</span>
         <span class="pcount"></span>
         <span class="pbar"><i></i></span>`;
       el.parts.appendChild(li);
@@ -747,7 +747,9 @@
   });
 
   el.saveCsv.addEventListener('click', () => {
-    const rows = [['Color', 'Brick', 'Quantity'], ...state.parts.map((p) => [p.color.name, `${p.a}x${p.c}`, p.total])];
-    download(new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' }), 'legofy-parts.csv');
+    // Rebrickable's parts-list import format (part number, Rebrickable colour id, quantity), so the list
+    // can go straight into Rebrickable and on to BrickLink or LEGO Pick a Brick.
+    const rows = [['Part', 'Color', 'Quantity'], ...state.parts.map((p) => [p.partNum, p.color.rebrickableId, p.total])];
+    download(new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' }), 'legofy-parts-rebrickable.csv');
   });
 })(window.Legofy);

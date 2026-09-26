@@ -70,10 +70,16 @@
     return `rgb(${m(r)},${m(g)},${m(b)})`;
   }
 
-  L.PALETTE = COLORS.map(([name, hex], id) => {
+  L.PALETTE = COLORS.map(([name, fallbackHex], id) => {
+    // Official colour values and ids from Rebrickable when available (src/parts-data.js).
+    const data = (L.COLOR_DATA || {})[name];
+    const hex = data ? data.rgb.toUpperCase() : fallbackHex;
     const rgb = hexToRgb(hex);
     return {
       id, name, hex, rgb,
+      rebrickableId: data ? data.id : null,
+      // Footprints ("1x4", "2x2"…) really produced in this colour, for bricks and for plates.
+      made: data ? { brick: new Set(data.brick), plate: new Set(data.plate) } : null,
       lab: rgbToLab(...rgb),
       css: hex,
       light: shade(rgb, 0.35),

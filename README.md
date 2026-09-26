@@ -117,6 +117,22 @@ letter only reads once it is several studs tall. A 12 cm can at 96 studs gets it
 studs tall; small print needs more size (3D models and scans go up to 320). Switching back to Normal
 restores the previous size. It's a lot of pieces (a can is ~16,000 plates), so turn up the build speed.
 
+## Real LEGO pieces only
+
+Every piece in a build is a real, produced LEGO element:
+
+- Parts are standard bricks and plates (1×1 up to 2×8), each with its official part number
+  (e.g. 3001 = Brick 2 × 4, 3020 = Plate 2 × 4).
+- `src/parts-data.js`, generated from [Rebrickable's database downloads](https://rebrickable.com/downloads/),
+  lists which of those footprints LEGO has actually made in each of the 38 colours (an element exists),
+  and the tiler only uses those; every colour exists as a 1×1, so any shape can still be built. Colour
+  values and ids are Rebrickable's official ones.
+- **Parts list** downloads the list in Rebrickable's import format (part, colour id, quantity). Import
+  it on Rebrickable to see prices and sellers, and export it to a BrickLink wanted list or order through
+  LEGO Pick a Brick. (Some combinations have been made but are now retired, so availability varies.)
+
+The baseplate in the 3D view is only for display.
+
 ## At real size
 
 Under the settings, **At real size** takes a real-world height and works out what it would take to build

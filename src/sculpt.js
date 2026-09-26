@@ -241,7 +241,8 @@
 
   // Greedily cover each layer with the largest same-colored bricks that fit. Alternating the
   // preferred orientation per layer makes bricks overlap the joints below, like a real build.
-  function tileLayer(layer, cols, depth, level, footprints, out) {
+  // made(color, "AxB"): whether that footprint is really produced in that colour (only real pieces).
+  function tileLayer(layer, cols, depth, level, footprints, out, made) {
     const used = new Uint8Array(cols * depth);
     const along = level % 2 === 0;
     const sizes = [];
@@ -250,6 +251,13 @@
       sizes.push(first);
       if (a !== b) sizes.push([first[1], first[0]]);
     }
+    const sizesFor = new Map(); // colour -> the sizes above that exist in it
+    const available = (c) => {
+      if (!sizesFor.has(c)) {
+        sizesFor.set(c, sizes.filter(([w, d]) => made(c, `${Math.min(w, d)}x${Math.max(w, d)}`)));
+      }
+      return sizesFor.get(c);
+    };
     const fits = (x, z, w, d, c) => {
       if (x + w > cols || z + d > depth) return false;
       for (let zz = z; zz < z + d; zz++) {
@@ -265,7 +273,7 @@
         const i = z * cols + x;
         if (used[i] || layer[i] < 0) continue;
         const c = layer[i];
-        for (const [w, d] of sizes) {
+        for (const [w, d] of available(c)) {
           if (!fits(x, z, w, d, c)) continue;
           for (let zz = z; zz < z + d; zz++) for (let xx = x; xx < x + w; xx++) used[zz * cols + xx] = 1;
           out.push({ x, z, level, w, d, color: c });
@@ -473,6 +481,11 @@
       !hollow || !(solid(x - 1, level, z) && solid(x + 1, level, z) && solid(x, level - 1, z) &&
         solid(x, level + 1, z) && solid(x, level, z - 1) && solid(x, level, z + 1));
 
+    const kind = layerHeight < L.BRICK_HEIGHT ? 'plate' : 'brick';
+    const made = (c, size) => {
+      const m = L.PALETTE[c].made;
+      return !m || m[kind].has(size);
+    };
     const bricks = [];
     const layer = new Int16Array(cols * depth);
     const footprints = onlySingles ? [[1, 1]] : FOOTPRINTS;
@@ -484,7 +497,7 @@
           if (c >= 0 && visible(x, level, z)) layer[z * cols + x] = c;
         }
       }
-      tileLayer(layer, cols, depth, level, footprints, bricks);
+      tileLayer(layer, cols, depth, level, footprints, bricks, made);
     }
     ORDERS[order](bricks, cols, depth);
     bricks.forEach((b, i) => { b.step = i; });
@@ -512,7 +525,8 @@
   L.nearestColor = (r, g, b) => nearest(L.PALETTE, r, g, b);
 
   // Aggregate bricks into a parts list keyed by color + footprint.
-  L.partsList = function (bricks, palette) {
+  // kind: 'brick' or 'plate'. Each entry carries the official part number (e.g. 3001 = Brick 2 x 4).
+  L.partsList = function (bricks, palette, kind = 'brick') {
     const map = new Map();
     for (const b of bricks) {
       const a = Math.min(b.w, b.d), c = Math.max(b.w, b.d);
@@ -520,7 +534,8 @@
       b.partKey = key;
       b.size = `${a} × ${c}`;
       if (!map.has(key)) {
-        map.set(key, { key, color: palette[b.color], a, c, size: b.size, total: 0, placed: 0 });
+        const partNum = L.PARTS ? L.PARTS[kind][`${a}x${c}`] : null;
+        map.set(key, { key, color: palette[b.color], a, c, size: b.size, kind, partNum, total: 0, placed: 0 });
       }
       map.get(key).total++;
     }
