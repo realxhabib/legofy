@@ -152,15 +152,36 @@
     }
   }
 
-  function useImage(img, previewSrc, keepNotice) {
-    state.source = { kind: 'image', img };
+  async function useImage(img, previewSrc, keepNotice) {
+    const source = { kind: 'image', img };
+    state.source = source;
     el.preview.src = previewSrc;
     el.preview.hidden = false;
     el.modelCard.hidden = true;
     el.dropzone.classList.add('has-image');
     if (!keepNotice) notice('');
     showSettingsFor('image');
-    build(true);
+    // Pick out the object with the on-device finder (works on busy backgrounds, unlike the plain-
+    // background cut-out); fall back to the original if it isn't available or finds nothing.
+    if (state.T) {
+      try {
+        notice('Finding the object in your photo…');
+        state.segmenter = state.segmenter || await state.T.loadSegmenter();
+        const c = document.createElement('canvas');
+        const k = Math.min(1, 1024 / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+        c.width = Math.round((img.naturalWidth || img.width) * k);
+        c.height = Math.round((img.naturalHeight || img.height) * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const subject = L.spatialSubject({ image: c, dist: null, segmenter: state.segmenter });
+        if (state.source !== source) return; // another image arrived meanwhile
+        if (subject) source.cutout = subject.cutout;
+        notice(subject ? 'Picked the object in the middle of the photo.' : '');
+      } catch (err) {
+        console.error(err);
+        notice('');
+      }
+    }
+    if (state.source === source) build(true);
   }
 
   function useModel(root, name, extra = {}) {
@@ -434,8 +455,9 @@
     const shared = { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer };
     try {
       const { kind } = state.source;
+      const picture = el.removeBg.checked && state.source.cutout ? state.source.cutout : state.source.img;
       state.model = kind === 'image' || kind === 'spatial'
-        ? L.buildSculpture(state.source.img, {
+        ? L.buildSculpture(picture, {
           ...shared,
           cols: +el.cols.value,
           thickness: el.thick.value / 100,

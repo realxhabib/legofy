@@ -86,8 +86,9 @@
     return pts;
   }
 
-  // Cut the subject out of the (left) photo with the on-device segmenter, pointed at `keypoint`
-  // (the middle of the photo unless told otherwise), and crop photo, depth and mask to it.
+  // Cut the subject out of a photo with the on-device segmenter, pointed at `keypoint` (the middle of
+  // the photo unless told otherwise), and crop photo, depth (if any) and mask to it. Also returns
+  // `cutout`: the cropped photo with everything but the subject made transparent.
   L.spatialSubject = function ({ image, dist, segmenter, keypoint = { x: 0.5, y: 0.5 } }) {
     const w = image.width, h = image.height;
     const mask = L.segmentZoomed(segmenter, image, w, h, w, h, { keypoint }, null);
@@ -119,6 +120,7 @@
         }
         if (!touches) continue;
         // What the piece adds must be at the object's distance, not the wall's behind it.
+        if (!dist) { for (let i = 0; i < w * h; i++) if (part[i] > mask[i]) mask[i] = part[i]; grew = true; continue; }
         const own = [], added = [];
         for (let i = 0; i < w * h; i++) {
           if (mask[i] >= 0.5) own.push(dist[i]);
@@ -150,11 +152,18 @@
     const cd = new Float32Array(cw * ch), cm = new Float32Array(cw * ch);
     for (let y = 0; y < ch; y++) {
       for (let x = 0; x < cw; x++) {
-        cd[y * cw + x] = dist[(y + y0) * w + x + x0];
+        if (dist) cd[y * cw + x] = dist[(y + y0) * w + x + x0];
         cm[y * cw + x] = mask[(y + y0) * w + x + x0];
       }
     }
-    return { image: c, dist: cd, mask: cm };
+    const cut = document.createElement('canvas');
+    cut.width = cw; cut.height = ch;
+    const cg = cut.getContext('2d');
+    cg.drawImage(c, 0, 0);
+    const px = cg.getImageData(0, 0, cw, ch);
+    for (let i = 0; i < cw * ch; i++) px.data[i * 4 + 3] = cm[i] >= 0.5 ? 255 : 0;
+    cg.putImageData(px, 0, 0);
+    return { image: c, dist: dist ? cd : null, mask: cm, cutout: cut };
   };
 
   function boundsOf(mask, w, h) {

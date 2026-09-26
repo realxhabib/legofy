@@ -22,9 +22,11 @@ function send(res, status, body) {
 }
 
 // Only this site may spend the key: the browser's Origin must match the host serving the function.
+// Browsers always send Origin with a POST, so a POST without one isn't from the page (a script):
+// refuse it. Status checks (GET) may omit it; they cost nothing.
 function sameSite(req) {
   const origin = req.headers.origin;
-  if (!origin) return true; // same-origin GETs may omit it
+  if (!origin) return req.method === 'GET';
   try {
     return new URL(origin).host === req.headers.host;
   } catch {
