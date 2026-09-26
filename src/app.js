@@ -18,7 +18,8 @@
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
     restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
     speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'), saveVideo: $('saveVideo'),
-    dropOverlay: $('dropOverlay'), toast: $('toast'), size2: $('size2'), size2Out: $('size2Out'), pieceCount: $('pieceCount'),
+    dropOverlay: $('dropOverlay'), toast: $('toast'), payModal: $('payModal'), payClose: $('payClose'), payPrice: $('payPrice'),
+    checkoutMount: $('checkoutMount'), size2: $('size2'), size2Out: $('size2Out'), pieceCount: $('pieceCount'),
   };
 
   const MODEL_TYPES = ['glb', 'gltf', 'obj', 'ply', 'stl', 'usdz'];
@@ -295,7 +296,7 @@
   });
 
   el.sample3d.addEventListener('click', () => {
-    if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)');
+    if (state.T) useModel(L.sampleModel(state.T), 'toadstool (sample model)', { sample: true });
   });
   el.sampleStarship.addEventListener('click', () => {
     el.life.open = true;
@@ -304,11 +305,115 @@
     showSettingsFor('model');
     el.cols.value = 300;
     el.colsOut.value = sizeLabel(300);
-    useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 123.1 });
+    useModel(L.starshipModel(state.T), 'Starship full stack (sample)', { realHeight: 123.1, sample: true });
   });
 
   el.emptyChoose.addEventListener('click', () => el.file.click());
   el.emptySample.addEventListener('click', () => el.sample3d.click());
+
+  // ---------- payments (Stripe embedded Checkout, through /api/checkout) ----------
+  // One payment per model unlocks everything for it: the AI model (with one retry), the instructions,
+  // video and ordering. Until Stripe keys are set on the server, everything stays free. Samples are free.
+
+  state.pay = { enabled: false };
+  fetch('api/checkout').then((r) => (r.ok ? r.json() : { enabled: false })).then((cfg) => {
+    state.pay = cfg && cfg.enabled ? cfg : { enabled: false };
+    if (state.pay.enabled) {
+      const p = state.pay.price;
+      const label = new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency.toUpperCase() }).format(p.cents / 100);
+      state.pay.label = label;
+      el.payPrice.textContent = label;
+      for (const b of [el.ai3dBtn, el.emptyGenerate]) b.innerHTML = `✦ Generate 3D model · ${label}`;
+    }
+  }).catch(() => {});
+
+  const PENDING_KEY = 'legofy-payment'; // a paid session not used up yet (survives a reload)
+  const store = {
+    get() { try { return localStorage.getItem(PENDING_KEY); } catch (err) { return null; } },
+    set(v) { try { if (v) localStorage.setItem(PENDING_KEY, v); else localStorage.removeItem(PENDING_KEY); } catch (err) { /* ignore */ } },
+  };
+
+  let stripeJs = null;
+  function loadStripe() {
+    if (stripeJs) return stripeJs;
+    stripeJs = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://js.stripe.com/v3/';
+      s.onload = () => resolve(window.Stripe(state.pay.publishableKey));
+      s.onerror = () => { stripeJs = null; reject(new Error('Couldn\'t load the checkout. Check your connection.')); };
+      document.head.appendChild(s);
+    });
+    return stripeJs;
+  }
+
+  // Shows the checkout and resolves with the paid session id, or null if it's closed.
+  let checkoutOpen = null;
+  function checkout() {
+    if (checkoutOpen) return checkoutOpen;
+    checkoutOpen = new Promise((resolve) => {
+      let embedded = null, done = false;
+      const finish = (id) => {
+        if (done) return;
+        done = true;
+        el.payModal.hidden = true;
+        if (embedded) embedded.destroy();
+        el.checkoutMount.innerHTML = '<p class="fine">Loading secure checkout…</p>';
+        checkoutOpen = null;
+        resolve(id);
+      };
+      el.payClose.onclick = () => finish(null);
+      el.payModal.hidden = false;
+      (async () => {
+        try {
+          const stripe = await loadStripe();
+          const r = await fetch('api/checkout', { method: 'POST' });
+          const s = await r.json();
+          if (!r.ok) throw new Error(s.error || 'Checkout isn\'t available right now.');
+          el.checkoutMount.innerHTML = '';
+          embedded = await stripe.initEmbeddedCheckout({
+            fetchClientSecret: async () => s.clientSecret,
+            onComplete: () => { store.set(s.id); setTimeout(() => finish(s.id), 1200); },
+          });
+          embedded.mount(el.checkoutMount);
+        } catch (err) {
+          console.error(err);
+          el.checkoutMount.innerHTML = `<p class="fine">${err.message || err}</p>`;
+        }
+      })();
+    });
+    return checkoutOpen;
+  }
+
+  // A paid session with a use left: one kept from before, or a new payment. Null if they cancel.
+  async function paidSession() {
+    if (!state.pay.enabled) return 'free';
+    const kept = store.get();
+    if (kept) {
+      const r = await fetch(`api/checkout?session=${encodeURIComponent(kept)}`).then((x) => x.json()).catch(() => ({}));
+      if (r.paid && r.left > 0) return kept;
+      store.set(null);
+    }
+    return checkout();
+  }
+
+  // Exports (instructions, video, ordering) are part of the payment. Samples are free to try.
+  function unlocked() {
+    const s = state.source;
+    return !state.pay.enabled || !s || s.sample || s.paid;
+  }
+  async function unlock() {
+    const id = await checkout();
+    if (!id) return false;
+    state.source.paid = id;
+    store.set(null); // this payment went on unlocking this model
+    notice('Unlocked: the instructions, video and ordering are all yours for this model.');
+    return true;
+  }
+  // Wrap a click handler so it asks for payment first (then they tap again: pop-ups need a fresh tap).
+  const paidAction = (fn) => async (...args) => {
+    if (unlocked()) return fn(...args);
+    if (await unlock()) toast('<button class="toast-close" aria-label="Close">×</button><b>Thanks, it\'s unlocked!</b> Tap the button again to continue.');
+  };
 
   // ---------- AI 3D model from a photo (through our /api/generate-3d server function) ----------
 
@@ -334,6 +439,11 @@
       throw new Error('Couldn\'t reach the AI. Check your connection and try again.');
     }
     const data = await r.json().catch(() => ({}));
+    if (r.status === 402) {
+      store.set(null);
+      if (state.source) state.source.payment = null;
+      throw new Error(data.error || 'Payment needed.');
+    }
     if (!r.ok) {
       // No JSON error means there is no server function here (opened from disk, GitHub Pages…).
       throw new Error(data.error || ([404, 405, 501].includes(r.status)
@@ -411,12 +521,12 @@
   }
 
   // One AI job: send the photos, wait, download the model. onStatus(text) reports progress.
-  async function runAiJob(photos, onStatus) {
+  async function runAiJob(photos, payment, onStatus) {
     const started = Date.now();
     const { id } = await callAi3d({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ views: photos }),
+      body: JSON.stringify({ views: photos, payment: payment === 'free' ? undefined : payment }),
     });
     let modelUrl = null;
     while (!modelUrl) {
@@ -440,6 +550,7 @@
     await loadModelFiles([file]);
     if (state.source.kind === 'model') {
       state.source.photo = src;
+      state.source.paid = src.payment || true;
       state.source.name = label;
       el.modelCard.querySelector('strong').textContent = label;
     }
@@ -448,6 +559,10 @@
   async function generate3d() {
     const src = state.source;
     if (!src || !src.img || state.generating) return;
+    // Paid first (a retry with the same photo reuses the payment).
+    const payment = src.payment || await paidSession();
+    if (!payment) return;
+    src.payment = payment;
     state.generating = true;
     el.ai3dBtn.disabled = el.emptyGenerate.disabled = true;
     try {
@@ -456,9 +571,10 @@
       for (const [name, img] of Object.entries(src.views || {})) photos[name] = photoAsJpeg(img, 1024);
       const count = Object.keys(photos).length;
       aiProgress(`Sending ${count === 1 ? 'your photo' : `${count} photos`}…`);
-      const result = await runAiJob(photos, (t) => aiProgress(`Building your 3D model: ${t} (usually a minute or two)`));
+      const result = await runAiJob(photos, payment, (t) => aiProgress(`Building your 3D model: ${t} (usually a minute or two)`));
       if (state.source !== src) return; // they moved on to something else meanwhile
       await openAiModel(src, result, 'Your 3D model');
+      store.set(null); // this payment made its model
       notice('Here\'s your model. Anything extra? Use ✂ Remove parts under the build to delete it.');
     } catch (err) {
       console.error(err);
@@ -1188,7 +1304,7 @@
       el.saveVideo.textContent = label;
     }
   }
-  el.saveVideo.addEventListener('click', recordVideo);
+  el.saveVideo.addEventListener('click', paidAction(recordVideo));
 
   el.savePng.addEventListener('click', () => {
     state.scene.snapshot((blob) => download(blob, 'legofy-build.png'));
@@ -1196,7 +1312,7 @@
 
   // Who may download the instruction manual. Everyone, for now: this is where a payment check
   // (e.g. Stripe Checkout) plugs in. Return { allowed: true } or { allowed: false, message }.
-  L.manualAccess = L.manualAccess || (async () => ({ allowed: true }));
+  L.manualAccess = L.manualAccess || (async () => ({ allowed: unlocked() || await unlock() }));
 
   el.saveManual.addEventListener('click', async () => {
     if (!state.model || !state.T) return;
@@ -1304,10 +1420,10 @@
         </ol>`);
     });
   }
-  el.buyParts.addEventListener('click', () => buyParts());
-  el.buyLego.addEventListener('click', buyLego);
+  el.buyParts.addEventListener('click', paidAction(() => buyParts()));
+  el.buyLego.addEventListener('click', paidAction(buyLego));
   // The button under the build: choose where to buy.
-  el.buyParts2.addEventListener('click', () => {
+  el.buyParts2.addEventListener('click', paidAction(() => {
     if (!state.parts.length) return;
     toast(`<button class="toast-close" aria-label="Close">×</button>
       <b>Where do you want to buy the ${state.parts.reduce((n, p) => n + p.total, 0).toLocaleString()} pieces?</b>
@@ -1315,7 +1431,7 @@
         <button type="button" class="buy-btn" data-buy="lego">🛒 LEGO Pick a Brick<small>New pieces from LEGO, all into your bag with one upload</small></button>
         <button type="button" class="buy-btn alt" data-buy="bricklink">BrickLink<small>Every piece and colour, from thousands of shops</small></button>
       </div>`);
-  });
+  }));
   el.toast.addEventListener('click', (e) => {
     const b = e.target.closest('[data-buy]');
     if (!b) return;
@@ -1323,14 +1439,14 @@
     else if (b.dataset.buy === 'bricklink') buyParts();
     else if (b.dataset.buy === 'bricklink-rest') buyParts(state.pabMissing && state.pabMissing.length ? state.pabMissing : state.parts);
   });
-  el.saveXml.addEventListener('click', () => {
+  el.saveXml.addEventListener('click', paidAction(() => {
     if (state.parts.length) download(new Blob([bricklinkXml()], { type: 'text/xml' }), 'legofy-bricklink-list.xml');
-  });
+  }));
 
-  el.saveCsv.addEventListener('click', () => {
+  el.saveCsv.addEventListener('click', paidAction(() => {
     // Rebrickable's parts-list import format (part number, Rebrickable colour id, quantity), so the list
     // can go straight into Rebrickable and on to BrickLink or LEGO Pick a Brick.
     const rows = [['Part', 'Color', 'Quantity'], ...state.parts.map((p) => [p.partNum, p.color.rebrickableId, p.total])];
     download(new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' }), 'legofy-parts-rebrickable.csv');
-  });
+  }));
 })(window.Legofy);

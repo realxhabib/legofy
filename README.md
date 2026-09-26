@@ -103,11 +103,22 @@ Only at a real narrowing (the joint has at most half the studs of the bigger lay
 box is built in one go. A yellow label on the 3D view says when a section is being built in the air, and
 **Build sections separately** in the settings turns it off.
 
-## Stripe (to do)
+## Payments (Stripe)
 
-`Legofy.manualAccess` in `src/app.js` decides who may download the instructions; it currently allows
-everyone. Return `{ allowed: false, message }` for visitors who haven't paid (e.g. after checking a Stripe
-Checkout session) and the download is refused with that message.
+One payment per model (default $2.99) unlocks everything for it: the AI model from photos (with one free
+retry), the instructions PDF, the build video and ordering the parts. Samples are free; your own 3D files
+can be previewed free and are unlocked the same way.
+
+- The page uses Stripe's **embedded Checkout** in a window over the page (no redirect, so the photos
+  stay put). `api/checkout.js` creates the session; `api/generate-3d.js` checks with Stripe that the
+  session is paid before it starts the AI, and counts each use on the payment itself (in the
+  PaymentIntent's metadata), so no database is needed and a payment can't be reused beyond its retry.
+- A paid session that hasn't made its model yet is kept in the browser, so a reload doesn't lose it.
+
+To turn it on, in Vercel **Settings → Environment Variables** add `STRIPE_SECRET_KEY` and
+`STRIPE_PUBLISHABLE_KEY` (start with the `sk_test_` / `pk_test_` keys from the Stripe dashboard and pay
+with card 4242 4242 4242 4242), optionally `PRICE_CENTS` (default 299) and `PRICE_CURRENCY` (default usd),
+and redeploy. Without the keys everything stays free.
 
 ## Instruction manual
 

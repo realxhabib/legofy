@@ -215,6 +215,21 @@
 
   <div id="toast" class="toast" role="status" hidden></div>
 
+  <div id="payModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="payTitle" hidden>
+    <div class="modal-card">
+      <button id="payClose" type="button" class="modal-close" aria-label="Close">×</button>
+      <h2 id="payTitle">Make it yours for <span id="payPrice">$2.99</span></h2>
+      <ul class="pay-list">
+        <li>Your 3D model, made by our AI (with one free retry)</li>
+        <li>The brick-by-brick build and a video to share</li>
+        <li>Printable step-by-step instructions</li>
+        <li>The parts list, ready to order every piece</li>
+      </ul>
+      <div id="checkoutMount" class="checkout-mount"><p class="fine">Loading secure checkout…</p></div>
+      <p class="fine pay-note">Payments are handled by Stripe. We never see your card details.</p>
+    </div>
+  </div>
+
   <div id="dropOverlay" class="drop-overlay" hidden>Drop your photo or 3D model</div>
 
   <script type="importmap">
