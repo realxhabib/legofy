@@ -64,12 +64,13 @@
       this.scene.add(this.trail);
     }
 
-    // For instruction pictures: pieces before `from` are washed out, so the new ones stand out.
-    fadeBefore(from) {
-      const c = this.tmp.c, white = new this.T.Color(1, 1, 1);
+    // For instruction pictures: pieces before `from` keep their real colours, just a little softer, so
+    // every piece still reads as the colour you'll pick up while the new ones stand out. amount: 0..1.
+    fadeBefore(from, amount = 0.1) {
+      const c = this.tmp.c, soft = new this.T.Color(0.93, 0.94, 0.95);
       this.model.bricks.forEach((b, i) => {
         c.set(this.model.palette[b.color].css);
-        if (i < from) c.lerp(white, 0.62);
+        if (i < from) c.lerp(soft, amount);
         const slot = this.slots[i];
         slot.mesh.setColorAt(slot.index, c);
         for (let k = 0; k < slot.studs.length; k++) this.studs.setColorAt(slot.stud + k, c);

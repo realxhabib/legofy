@@ -158,6 +158,7 @@
   }
 
   function useModel(root, name, extra = {}) {
+    $('saveGlb').hidden = true;
     state.source = { kind: 'model', root, name, ...extra };
     state.edits = [];
     state.volumeCache = null;
@@ -566,9 +567,15 @@
       state.source.photo = src;
       state.source.paid = src.payment || true;
       state.source.name = label;
+      state.source.glb = result.blob;
       el.modelCard.querySelector('strong').textContent = label;
+      $('saveGlb').hidden = false;
     }
   }
+  // The AI's 3D model itself, to keep or open in other 3D apps.
+  $('saveGlb').addEventListener('click', () => {
+    if (state.source && state.source.glb) download(state.source.glb, `${fileTitle()}.glb`);
+  });
 
   async function generate3d() {
     const src = state.source;

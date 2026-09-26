@@ -1,6 +1,6 @@
 // Printable building instructions (PDF), LEGO-booklet style: a cover, a parts inventory with a 3D picture
 // of every piece, then numbered steps on pale blue pages. Each step has a callout of the pieces it needs,
-// the model so far in 3D (new pieces in full colour, earlier ones faded) and a top-down plan of the layer
+// the model so far in 3D (every piece in its real colour, earlier ones slightly softer) and a top-down plan of the layer
 // with the layer below as a guide. Sub-assemblies get their own steps and a "put it on" step.
 // Everything is drawn in the browser; jsPDF (loaded on first use) assembles the file.
 (function (L) {
@@ -54,7 +54,7 @@
     const rect = (b) => [pad + b.x * cell, pad + b.z * cell, b.w * cell, b.d * cell];
     for (const b of below) {
       const [x, y, w, h] = rect(b);
-      g.fillStyle = `rgb(${lighten(model.palette[b.color].rgb, 0.72).join(',')})`;
+      g.fillStyle = `rgb(${lighten(model.palette[b.color].rgb, 0.45).join(',')})`; // the layer below, in its colours
       g.fillRect(x + 1, y + 1, w - 2, h - 2);
     }
     for (const b of bricks) {

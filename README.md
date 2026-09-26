@@ -130,8 +130,8 @@ The PDF is made in the browser (A4), styled like a LEGO booklet:
   size and the build-check results, next to a render of the model.
 - **Parts you need:** a rendered 3D picture of every piece with its count, colour and part number.
 - **Steps**, two per pale-blue page, one layer each: a callout of the pieces that step needs (3D
-  pictures), the step number, a 3D view zoomed to what's built so far (new pieces bright, earlier ones
-  faded) and a top-down plan of the layer with a FRONT marker. Sub-assemblies get their own steps and a
+  pictures), the step number, a 3D view zoomed to what's built so far (every piece in its real colour, earlier ones
+  slightly softer) and a top-down plan of the layer with a FRONT marker. Sub-assemblies get their own steps and a
   "put it on" step; steps say when pieces clip on underneath.
 
 ## Keeping text readable
