@@ -73,6 +73,15 @@ it; pieces side by side in one layer aren't joined. From that graph:
 - It also counts stud connections and checks that no two pieces overlap. The result is on the page and
   on the instructions' cover.
 
+## Sub-assemblies
+
+Like a real set, bigger models are built in sections (`L.planAssemblies` in `src/buildcheck.js`). The
+model is cut at its narrowest joints (a stem under a cap, a neck): few studs joining two layers compared
+with the bigger of the two. The bottom section is built in place; each separate part of a higher section
+(two arms, a head) is its own sub-assembly, built on its own from its bottom layer up, then put on. In the
+3D view it's built hovering above its spot and then lowered into place; ▶ steps through "put it on" as
+one step. The instructions get "Sub-assembly A" steps and a "Put sub-assembly A on top" step.
+
 ## Stripe (to do)
 
 `Legofy.manualAccess` in `src/app.js` decides who may download the instructions; it currently allows

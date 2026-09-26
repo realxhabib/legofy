@@ -104,6 +104,11 @@
 
       const { cols, rows, depth, bricks } = model;
       this.lh = model.layerHeight || L.BRICK_HEIGHT; // 1.2 bricks, 0.4 plates
+      // Sub-assemblies float this high above their spot until they're put on (lifts[group], studs).
+      this.assemblies = model.assemblies || [];
+      this.lifts = new Float32Array(this.assemblies.length + 1);
+      this.maxLift = this.assemblies.reduce((m, a) => Math.max(m, a.lift), 0);
+      this.focusLift = 0;
       this.height = rows * this.lh;
       this.ghost.scale.y = this.lh / L.BRICK_HEIGHT;
 
@@ -221,7 +226,7 @@
 
     brickOrigin(b) {
       const { cols, depth } = this.model;
-      return [b.x + b.w / 2 - cols / 2, this.floor + b.level * this.lh, b.z + b.d / 2 - depth / 2];
+      return [b.x + b.w / 2 - cols / 2, this.floor + b.level * this.lh + (this.lifts[b.group || 0] || 0), b.z + b.d / 2 - depth / 2];
     }
 
     // Pose one brick: offset = [x, y, z] away from its final spot, tilt = rotation in radians.
@@ -258,6 +263,19 @@
     }
 
     place(i) { this.pose(i); }
+
+    // Lifts for a point in the build: sub-assemblies finished by piece n are on (except `pending`, one
+    // that's built but not put on yet); the rest still float. Call showUpTo(n) after.
+    setLiftsAt(n, pending = 0) {
+      for (const a of this.assemblies) this.lifts[a.group] = a.end <= n && a.group !== pending ? 0 : a.lift;
+    }
+
+    // Move one sub-assembly (its pieces before `shown` are visible) to a new height above its spot.
+    setLift(group, lift, shown) {
+      this.lifts[group] = lift;
+      const a = this.assemblies[group - 1];
+      for (let i = a.start; i < Math.min(a.end, shown); i++) this.pose(i);
+    }
 
     // Where piece i flies in from, and how it's turned: a steady direction per piece, from all around.
     flight(i, t) {
@@ -309,7 +327,7 @@
     // Where the camera looks: the middle of what has been built so far (never below a third of the way up).
     focusTarget() {
       const h = Math.max(this.builtRows, 4, this.model.rows / 3) * this.lh;
-      return new this.T.Vector3(0, this.floor + h * 0.5, 0);
+      return new this.T.Vector3(0, this.floor + h * 0.5 + this.focusLift * 0.5, 0);
     }
 
     // rows: how many layers have been built so far.
@@ -323,7 +341,7 @@
       const { cols, depth } = this.model;
       const fov = (this.camera.fov * Math.PI) / 180;
       const aspect = Math.max(0.5, this.camera.aspect);
-      const size = Math.max(this.height, Math.hypot(cols, depth) / aspect);
+      const size = Math.max(this.height + (this.maxLift || 0) * 0.5, Math.hypot(cols, depth) / aspect);
       const dist = ((size * 0.66) / Math.tan(fov / 2) + 4) * zoom;
       const target = this.focusTarget();
       this.controls.target.copy(target);

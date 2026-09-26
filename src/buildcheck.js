@@ -38,12 +38,12 @@
     return plate;
   };
 
-  L.checkBuild = function (model, { baseplate = false } = {}) {
+  // Which piece fills each cell, and the stud connections between pieces in neighbouring layers
+  // (adj[i]: Map of piece -> number of shared studs).
+  function connect(model) {
     const { cols, depth, rows, bricks } = model;
     const n = bricks.length;
     const cell = (x, level, z) => (level * depth + z) * cols + x;
-
-    // Which piece fills each cell; two pieces in one cell would be a collision.
     const owner = new Int32Array(cols * depth * rows).fill(-1);
     let collisions = 0;
     bricks.forEach((b, i) => {
@@ -52,8 +52,6 @@
         if (owner[k] >= 0) collisions++; else owner[k] = i;
       }
     });
-
-    // Stud connections between pieces in neighbouring layers.
     const adj = Array.from({ length: n }, () => new Map());
     let connections = 0;
     bricks.forEach((b, i) => {
@@ -66,6 +64,13 @@
         connections++;
       }
     });
+    return { owner, adj, connections, collisions };
+  }
+
+  L.checkBuild = function (model, { baseplate = false } = {}) {
+    const { bricks } = model;
+    const n = bricks.length;
+    let { adj, connections, collisions } = connect(model);
     // On a baseplate every stud of the bottom layer is a connection too, and it ties them all together.
     const grounded = (b) => b.level === 0;
     if (baseplate) for (const b of bricks) if (grounded(b)) connections += b.w * b.d;
@@ -257,6 +262,118 @@
     model.bricks = check.order;
     model.bricks.forEach((b, i) => { b.step = i; });
     return { model, check, fixes: { hidden, specks, recoloured } };
+  };
+
+  // Sub-assemblies, like a real LEGO set. The model is cut into sections at its narrowest joints (a
+  // neck, a waist); the bottom section is built in place, and each separate part of a higher section is
+  // built on its own and then put on (in the animation it's built hovering above its spot, then lowered
+  // into place). Reorders model.bricks, sets b.group on each piece (0 = built in place) and sets
+  // model.assemblies = [{ group, label, start, end, lift }] (pieces start..end-1 make up that group).
+  L.planAssemblies = function (model, { minRows = 14, minPieces = 8 } = {}) {
+    const { rows, bricks } = model;
+    const n = bricks.length;
+    for (const b of bricks) b.group = 0;
+    model.assemblies = [];
+    if (rows < minRows || n < 60) return model;
+    const { adj } = connect(model);
+
+    // Where to cut: few studs joining two layers compared with how big they are.
+    const cells = new Float64Array(rows), between = new Float64Array(rows);
+    bricks.forEach((b, i) => {
+      cells[b.level] += b.w * b.d;
+      for (const [j, k] of adj[i]) if (bricks[j].level === b.level + 1) between[b.level] += k;
+    });
+    const sections = Math.max(2, Math.min(4, Math.round(rows / 14)));
+    const minH = Math.max(4, Math.floor(rows / (sections + 1)));
+    const candidates = [];
+    for (let l = minH - 1; l <= rows - minH - 1; l++) {
+      if (!between[l]) continue;
+      // A neck: the joint is small next to the bigger of the two layers (stem under a cap, head on a body).
+      candidates.push({ at: l + 1, score: between[l] / Math.max(1, cells[l], cells[l + 1]) });
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    const cuts = [];
+    for (const c of candidates) {
+      if (cuts.length >= sections - 1) break;
+      if (cuts.every((k) => Math.abs(k - c.at) >= minH)) cuts.push(c.at);
+    }
+    if (!cuts.length) return model;
+    const starts = [0, ...cuts.sort((a, b) => a - b)];
+
+    const placed = new Uint8Array(n);
+    const order = [];
+    // Put members in order (keeping the current order where possible): a piece goes in when it is a base
+    // piece or touches one already placed; `local` limits "placed" to the members themselves (a
+    // sub-assembly is built on its own, away from the model).
+    const build = (members, isBase, local) => {
+      const inSet = local ? new Set(members) : null;
+      const waiting = new Set();
+      const touching = (i) => { for (const j of adj[i].keys()) if (placed[j] && (!inSet || inSet.has(j))) return true; return false; };
+      const put = (start) => {
+        const todo = [start];
+        while (todo.length) {
+          const i = todo.pop();
+          if (placed[i]) continue;
+          const b = bricks[i];
+          b.hanging = !isBase(b) && ![...adj[i].keys()].some((j) => placed[j] && (!inSet || inSet.has(j)) && bricks[j].level < b.level);
+          placed[i] = 1;
+          order.push(b);
+          for (const j of adj[i].keys()) if (waiting.has(j)) { waiting.delete(j); todo.push(j); }
+        }
+      };
+      for (const i of members) {
+        if (placed[i]) continue;
+        if (isBase(bricks[i]) || touching(i)) put(i); else waiting.add(i);
+      }
+      return [...waiting];
+    };
+    // Groups of members that hold together among themselves.
+    const groupsOf = (members) => {
+      const inSet = new Set(members), seen = new Set(), out = [];
+      for (const s0 of members) {
+        if (seen.has(s0)) continue;
+        const comp = [], stack = [s0];
+        seen.add(s0);
+        while (stack.length) {
+          const i = stack.pop();
+          comp.push(i);
+          for (const j of adj[i].keys()) if (inSet.has(j) && !seen.has(j)) { seen.add(j); stack.push(j); }
+        }
+        out.push(comp.sort((a, b) => a - b));
+      }
+      return out.sort((a, b) => a[0] - b[0]);
+    };
+
+    const all = bricks.map((_, i) => i);
+    let carry = build(all.filter((i) => bricks[i].level < starts[1]), (b) => b.level === 0, false);
+    const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const height = rows * (model.layerHeight || L.BRICK_HEIGHT);
+    for (let k = 1; k < starts.length; k++) {
+      const bottom = starts[k], top = starts[k + 1] ?? rows;
+      const members = [...carry, ...all.filter((i) => bricks[i].level >= bottom && bricks[i].level < top)].sort((a, b) => a - b);
+      const later = [];
+      carry = [];
+      for (const comp of groupsOf(members)) {
+        const standsOnBottom = comp.some((i) => bricks[i].level === bottom);
+        if (!standsOnBottom) { (k + 1 < starts.length ? carry : later).push(...comp); continue; }
+        // Too small to be worth building separately (a few pieces, or a hidden support): put on in place.
+        if (comp.length < Math.max(minPieces, members.length * 0.08)) { later.push(...comp); continue; }
+        const group = model.assemblies.length + 1;
+        const start = order.length;
+        for (const i of comp) bricks[i].group = group;
+        build(comp, (b) => b.level === bottom, true);
+        model.assemblies.push({
+          group, label: LETTERS[(group - 1) % 26], start, end: order.length, bottom,
+          lift: Math.max(6, height * 0.22),
+        });
+      }
+      // Small bits of this section go on in place, after its sub-assemblies.
+      carry.push(...build(later.sort((a, b) => a - b), (b) => b.level === 0, false));
+    }
+    for (let i = 0; i < n; i++) if (!placed[i]) { bricks[i].hanging = false; order.push(bricks[i]); }
+    model.bricks = order;
+    model.bricks.forEach((b, i) => { b.step = i; });
+    return model;
   };
 
   // Bridges in the main part's connection graph that are a single stud and cut off >= minSide pieces.

@@ -118,7 +118,7 @@
     scene.controls.autoRotate = false;
     // Frame the finished model tightly: fit its bounding sphere, seen from the front-right, above.
     {
-      const h = model.rows * (model.layerHeight || L.BRICK_HEIGHT);
+      const h = model.rows * (model.layerHeight || L.BRICK_HEIGHT) + (scene.maxLift || 0);
       const radius = 0.5 * Math.hypot(model.cols, model.depth, h);
       const fov = (scene.camera.fov * Math.PI) / 180;
       const dist = (radius / Math.sin(fov / 2)) * 0.95;
@@ -127,7 +127,9 @@
       scene.camera.position.copy(dir.multiplyScalar(dist)).add(scene.controls.target);
       scene.controls.update();
     }
-    const snapshot = (upTo, fadeFrom) => {
+    // pending: a sub-assembly that's built but not put on yet (it floats above its spot).
+    const snapshot = (upTo, fadeFrom, pending = 0) => {
+      scene.setLiftsAt(upTo, pending);
       scene.showUpTo(upTo);
       scene.fadeBefore(fadeFrom);
       scene.render(16);
@@ -205,14 +207,18 @@
       const perStep = Math.max(1, Math.ceil(model.rows / MAX_STEPS));
       const steps = [];
       let i = 0;
+      const assemblies = model.assemblies || [];
       while (i < total) {
-        const start = i, levelTo = model.bricks[i].level + perStep;
-        while (i < total && model.bricks[i].level < levelTo) i++;
-        steps.push({ start, end: i, level: model.bricks[start].level });
+        const start = i, levelTo = model.bricks[i].level + perStep, group = model.bricks[i].group || 0;
+        while (i < total && model.bricks[i].level < levelTo && (model.bricks[i].group || 0) === group) i++;
+        steps.push({ start, end: i, level: model.bricks[start].level, group });
+        // A finished sub-assembly gets its own step: put it on.
+        const a = group && assemblies[group - 1];
+        if (a && i >= a.end) steps.push({ attach: a, start: a.start, end: a.end });
       }
       const blockH = (PAGE_H - 2 * M - 8) / 2;
       for (let s = 0; s < steps.length; s++) {
-        const { start, end, level } = steps[s];
+        const { start, end, level, group = 0, attach } = steps[s];
         if (s % 2 === 0) { doc.addPage(); page++; footer(doc, page, title); }
         const top = M + (s % 2) * (blockH + 6);
         onProgress((s + 1) / steps.length, `Drawing step ${s + 1} of ${steps.length}…`);
@@ -225,19 +231,42 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(120);
+
+        if (attach) {
+          // Put the sub-assembly on: one big picture of the model with it in place.
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(12);
+          doc.setTextColor(30);
+          doc.text(`Put sub-assembly ${attach.label} on top`, M + 18, top + 9);
+          const w = PAGE_W - 2 * M, h = blockH - 30;
+          doc.setDrawColor(225);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(M, top + 14, w, h, 2, 2, 'S');
+          fit(doc, snapshot(end, start), RW, RH, M + 1, top + 15, w - 2, h - 2);
+          doc.setFillColor(255, 244, 204);
+          doc.roundedRect(M, top + 17 + h, w, 10, 2, 2, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(60);
+          doc.text(`Line sub-assembly ${attach.label} up over the studs it sits on and press it down firmly all the way round.`, M + 4, top + 23.5 + h);
+          continue;
+        }
+
         const bricks = model.bricks.slice(start, end);
         const lastLevel = bricks.reduce((m, b) => Math.max(m, b.level), level);
         const hanging = bricks.filter((b) => b.hanging).length;
-        doc.text((level === lastLevel ? `Layer ${level + 1} of ${model.rows}` : `Layers ${level + 1}–${lastLevel + 1} of ${model.rows}`) +
+        const label = group ? `Sub-assembly ${assemblies[group - 1].label} (build it separately) · ` : '';
+        doc.text(label + (level === lastLevel ? `Layer ${level + 1} of ${model.rows}` : `Layers ${level + 1}–${lastLevel + 1} of ${model.rows}`) +
           (hanging ? ` · clip ${hanging} ${hanging === 1 ? 'piece' : 'pieces'} on underneath` : ''), M + 18, top + 9);
 
-        const below = model.bricks.filter((b) => b.level === level - 1);
+        // The layer under this step's pieces, as far as it's built (a sub-assembly only has its own).
+        const below = model.bricks.filter((b, k) => k < start && b.level === level - 1 && (!group || b.group === group));
         const imgW = (PAGE_W - 2 * M - 6) / 2, imgH = blockH - 44;
         doc.setDrawColor(225);
         doc.setLineWidth(0.3);
         doc.roundedRect(M, top + 14, imgW, imgH, 2, 2, 'S');
         doc.roundedRect(M + imgW + 6, top + 14, imgW, imgH, 2, 2, 'S');
-        fit(doc, snapshot(end, start), RW, RH, M + 1, top + 15, imgW - 2, imgH - 2);
+        fit(doc, snapshot(end, start, group), RW, RH, M + 1, top + 15, imgW - 2, imgH - 2);
         const plan = planImage(model, bricks, below);
         fit(doc, plan.url, plan.w, plan.h, M + imgW + 7, top + 15, imgW - 2, imgH - 2);
 

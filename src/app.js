@@ -502,6 +502,9 @@
         model.bricks = check.order;
         model.bricks.forEach((b, i) => { b.step = i; });
       }
+      // Sub-assemblies built separately and put on, like a real set.
+      L.planAssemblies(model);
+      check.hanging = model.bricks.filter((b) => b.hanging).length;
       if (opts.baseplate) model.baseplate = L.chooseBaseplate(model);
       model.check = check;
       model.fixes = fixes;
@@ -693,6 +696,24 @@
     state.uiDirty = true;
   }
 
+  // The sub-assembly that's built and waiting to be put on before piece `state.placed` can go in.
+  function dueAssembly() {
+    const m = state.model;
+    if (!m.assemblies) return null;
+    const a = m.assemblies.find((x) => x.end === state.placed);
+    return a && state.scene.lifts[a.group] > 0 ? a : null;
+  }
+  const ASSEMBLE_MS = 1100;
+  function startAssembly(a, now) {
+    state.assembling = { a, start: now };
+    state.uiDirty = true;
+  }
+  function finishAssembly(a) {
+    state.scene.setLift(a.group, 0, state.placed);
+    state.assembling = null;
+    state.uiDirty = true;
+  }
+
   function flushActive() {
     for (const a of state.active) state.scene.place(a.i);
     state.active = [];
@@ -703,6 +724,8 @@
     state.placed = Math.max(0, Math.min(total, n));
     state.active = [];
     state.acc = 0;
+    state.assembling = null;
+    state.scene.setLiftsAt(state.placed);
     for (const p of state.parts) p.placed = p.kind === 'baseplate' ? p.total : 0;
     for (let i = 0; i < state.placed; i++) partFor(state.model.bricks[i]).placed++;
     state.scene.showUpTo(state.placed);
@@ -716,7 +739,7 @@
       state.scene.highlight(null);
       for (const b of el.bcList.querySelectorAll('[data-act^="show"]')) b.textContent = 'Show';
     }
-    if (on && state.placed >= state.model.bricks.length) seek(0);
+    if (on && state.placed >= state.model.bricks.length && !dueAssembly()) seek(0);
     state.playing = on;
     state.acc = 1; // place the first brick immediately
     state.uiDirty = true;
@@ -729,10 +752,29 @@
     const m = state.model;
     if (m) {
       const total = m.bricks.length;
-      if (state.playing) {
+      if (state.assembling) {
+        // Lower the finished sub-assembly onto the model.
+        const { a, start } = state.assembling;
+        const t = Math.min(1, (now - start) / ASSEMBLE_MS);
+        const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        if (t >= 1) finishAssembly(a); else state.scene.setLift(a.group, a.lift * (1 - e), state.placed);
+      } else if (state.playing) {
         state.acc += (dt / 1000) * bricksPerSecond();
-        while (state.acc >= 1 && state.placed < total) { spawn(now); state.acc--; }
-        if (state.placed >= total && !state.active.length) setPlaying(false);
+        while (state.acc >= 1 && state.placed < total) {
+          const due = dueAssembly();
+          if (due) {
+            if (!state.active.length) startAssembly(due, now); // once its last pieces have landed
+            state.acc = Math.min(state.acc, 1);
+            break;
+          }
+          spawn(now);
+          state.acc--;
+        }
+        if (state.placed >= total && !state.assembling) {
+          const due = dueAssembly();
+          if (due && !state.active.length) startAssembly(due, now);
+          else if (!due && !state.active.length) setPlaying(false);
+        }
       }
       state.active = state.active.filter((a) => {
         const t = (now - a.start) / a.duration;
@@ -740,7 +782,9 @@
         state.scene.place(a.i);
         return false;
       });
-      state.scene.setProgress(state.placed ? m.bricks[state.placed - 1].level + 1 : 0);
+      const last = state.placed ? m.bricks[state.placed - 1] : null;
+      state.scene.setProgress(last ? last.level + 1 : 0);
+      state.scene.focusLift = last && last.group ? state.scene.lifts[last.group] : 0;
       const ghost = !state.playing && !state.active.length && state.placed < total ? state.placed : null;
       state.scene.setGhost(ghost, now);
       if (state.uiDirty && now - state.lastUi > 60) updateUi(now);
@@ -753,6 +797,10 @@
     if (!state.model) return;
     setPlaying(false);
     flushActive();
+    // A built sub-assembly goes on as one step.
+    if (state.assembling) return finishAssembly(state.assembling.a);
+    const due = dueAssembly();
+    if (due) return finishAssembly(due);
     if (state.placed < state.model.bricks.length) spawn(performance.now());
   });
   el.back.addEventListener('click', () => { setPlaying(false); seek(state.placed - 1); });
@@ -797,6 +845,8 @@
       `${state.model.cols} × ${state.model.depth} studs, ${state.model.rows} ${state.model.pieces} tall`;
   }
 
+  const sub = (b) => (b.group ? `, sub-assembly ${state.model.assemblies[b.group - 1].label}` : '');
+
   function updateUi(now) {
     state.lastUi = now;
     state.uiDirty = false;
@@ -804,9 +854,22 @@
     const total = m.bricks.length;
     el.scrub.value = state.placed;
     el.counter.textContent = `${state.placed.toLocaleString()} / ${total.toLocaleString()}`;
+    const due = dueAssembly();
     el.play.textContent = state.playing ? '❚❚ Pause'
-      : state.placed >= total ? '↻ Build again' : state.placed ? '▶ Resume' : '▶ Build';
+      : state.placed >= total && !due ? '↻ Build again' : state.placed ? '▶ Resume' : '▶ Build';
 
+    if (state.assembling || (due && !state.playing)) {
+      const a = state.assembling ? state.assembling.a : due;
+      el.swatch.hidden = true;
+      el.caption.textContent = state.assembling ? `Putting sub-assembly ${a.label} on…` : `Next: put sub-assembly ${a.label} on top, pressing it down all round`;
+      for (const { part, li, count, bar } of state.partEls.values()) {
+        count.textContent = `${part.placed}/${part.total}`;
+        bar.style.width = `${(part.placed / part.total) * 100}%`;
+        li.classList.toggle('done', part.placed === part.total);
+        li.classList.remove('current');
+      }
+      return;
+    }
     const next = !state.playing && state.placed < total ? m.bricks[state.placed] : null;
     const shown = next || m.bricks[state.placed - 1];
     const current = shown && shown.partKey;
@@ -815,8 +878,8 @@
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
       el.caption.textContent = next
-        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1} ${next.hanging ? '(clip it on under the piece above)' : '(the glowing spot)'}`
-        : `${shown.size} ${c.name} ${m.piece}, layer ${shown.level + 1} of ${m.rows}`;
+        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1}${sub(next)} ${next.hanging ? '(clip it on under the piece above)' : '(the glowing spot)'}`
+        : `${shown.size} ${c.name} ${m.piece}, layer ${shown.level + 1} of ${m.rows}${sub(shown)}`;
     } else {
       el.swatch.hidden = true;
       el.caption.textContent = 'Press Build to start';
@@ -957,7 +1020,8 @@
       await new Promise((resolve) => {
         const check = () => {
           el.saveVideo.textContent = `🎬 ${Math.round((state.placed / total) * 100)}%`;
-          if (state.placed >= total && !state.active.length) resolve(); else setTimeout(check, 100);
+          if (state.placed >= total && !state.active.length && !state.assembling && !dueAssembly()) resolve();
+          else setTimeout(check, 100);
         };
         check();
       });
