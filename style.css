@@ -403,7 +403,7 @@ canvas:active { cursor: grabbing; }
 .buttons button.on { background: var(--ink); color: var(--panel); border-color: transparent; }
 
 /* ---------- Buying the parts ---------- */
-.buy { display: flex; flex-direction: column; gap: 8px; }
+.buy-box { display: flex; flex-direction: column; gap: 8px; }
 .buy-btn {
   height: 46px; border-radius: 12px; border: 0; cursor: pointer; font-weight: 700; font-size: 15px;
   background: linear-gradient(180deg, #2fa84f, #23843d); color: #fff;
@@ -428,6 +428,35 @@ canvas:active { cursor: grabbing; }
   position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%;
   border: 0; background: var(--field); color: var(--ink); cursor: pointer; font-size: 18px; line-height: 1;
 }
+
+
+/* ---------- Build check ---------- */
+.build-check { gap: 10px; }
+.bc-badge {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: #23843d; color: #fff; font-size: 14px; font-weight: 800;
+}
+.build-check[data-state="warn"] .bc-badge { background: #e3a008; }
+.build-check[data-state="bad"] .bc-badge { background: var(--accent); }
+.bc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bc-list li {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  padding: 8px 10px; border-radius: 10px; background: var(--field); font-size: 13.5px;
+}
+.bc-text { flex: 1; min-width: 180px; }
+.bc-icon {
+  display: grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%;
+  font-size: 11px; font-weight: 800; color: #fff; background: #23843d;
+}
+.bc-warn .bc-icon { background: #e3a008; }
+.bc-bad .bc-icon { background: var(--accent); }
+.bc-info .bc-icon { background: var(--muted); }
+.bc-bad { background: var(--accent-soft) !important; }
+.bc-act {
+  height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+.bc-act:hover { border-color: var(--muted); }
 
 /* ---------- Small screens ---------- */
 @media (max-width: 900px) {

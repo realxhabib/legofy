@@ -48,6 +48,31 @@ add `FAL_KEY` and redeploy. Each generation costs about $0.48 (textured, since t
 colours from it) and anyone who can open the site can start one, so set a spending limit with the
 provider. Payments can gate this later (see Stripe below).
 
+## Build checks
+
+Every build is checked and repaired so it can really be built (`src/buildcheck.js`). Pieces only
+connect through studs: each piece joins the pieces in the layers directly above and below that overlap
+it; pieces side by side in one layer aren't joined. From that graph:
+
+- **Tiling that bonds:** each layer is tiled like a brick wall: a piece scores for bridging a joint
+  underneath and loses points for ending right above one, so walls don't split into separate towers.
+- **A shell that holds:** hollow models keep every piece that touches the outside along a face or an
+  edge (so a cap stays attached to its stem and curved walls stay continuous), and roofs and overhangs
+  are two layers thick so their joints cross.
+- **Loose parts get tied on:** a part that doesn't connect to the main one gets hidden supports: a
+  two-stud column through the solid inside, up or down to the main part. If there's no inside route,
+  a stud on the other side of a side-by-side seam takes the part's colour and one piece straddles it.
+  Specks of up to 4 pieces that still can't attach are left out; anything bigger is reported, with
+  **Show** and **Remove them**.
+- **Every step buildable:** the chosen build order is kept, but a piece with nothing under it yet
+  waits and goes in right after the piece above it, clipped on underneath (the steps say so).
+- **Stands up:** the centre of mass must be over the bottom layer's footprint, or it's flagged with
+  **Add a baseplate**. **Build on a baseplate** picks real Light Bluish Gray baseplates (16×16 3867,
+  16×32 3857, 32×32 3811, 48×48 4186) that fit, and adds them to the parts list.
+- **Weak spots:** joints held by a single stud that carry a group of pieces are listed, with **Show**.
+- It also counts stud connections and checks that no two pieces overlap. The result is on the page and
+  on the instructions' cover.
+
 ## Stripe (to do)
 
 `Legofy.manualAccess` in `src/app.js` decides who may download the instructions; it currently allows
@@ -105,7 +130,8 @@ Keyboard: `Space` play/pause, `←`/`→` step, `Home`/`End` restart/finish.
 
 - `src/palette.js`: LEGO colours (with Rebrickable and BrickLink ids) and sRGB → Lab
 - `src/parts-data.js`: which parts exist in which colours (from Rebrickable)
-- `src/sculpt.js`: voxels → bricks (hollowing, tiling, build order), parts list
+- `src/sculpt.js`: voxels → bricks (hollowing, bonded tiling, build order), parts list
+- `src/buildcheck.js`: build checks and repairs, baseplates
 - `src/voxelize.js`: 3D model → coloured voxels, plus the toadstool and Starship samples
 - `src/heic.js`: HEIC photo decoding
 - `src/scene3d.js`: three.js scene (instanced bricks and studs, drop animation, camera, picking)

@@ -90,13 +90,14 @@
         <div class="checks">
           <label class="check"><input id="hollow" type="checkbox" checked> Hollow inside (far fewer pieces)</label>
           <label class="check"><input id="singles" type="checkbox"> 1 × 1 pieces only</label>
+          <label class="check"><input id="baseplate" type="checkbox"> Build on a baseplate (holds the bottom together)</label>
         </div>
       </section>
 
       <section class="card parts" aria-labelledby="partsTitle">
         <h2 id="partsTitle" class="card-title"><span class="step">3</span> Get the pieces</h2>
         <p class="parts-summary"><small id="partsSummary"></small></p>
-        <div id="buyBox" class="buy" hidden>
+        <div id="buyBox" class="buy-box" hidden>
           <button id="buyParts" type="button" class="buy-btn">🛒 Buy all the parts</button>
           <p class="fine">Opens BrickLink, the biggest LEGO parts marketplace, with your list copied: paste it in,
             then press <b>Easy Buy</b> to find shops that have everything.
@@ -179,6 +180,11 @@
           </div>
         </div>
       </div>
+
+      <section id="buildCheck" class="card build-check" hidden aria-labelledby="bcTitle">
+        <h2 id="bcTitle" class="card-title"><span id="bcBadge" class="bc-badge">✓</span> <span id="bcHeadline">Build check</span></h2>
+        <ul id="bcList" class="bc-list"></ul>
+      </section>
     </section>
   </main>
 
@@ -203,6 +209,7 @@
   <script src="src/palette.js"></script>
   <script src="src/sculpt.js"></script>
   <script src="src/voxelize.js"></script>
+  <script src="src/buildcheck.js"></script>
   <script src="src/heic.js"></script>
   <script src="src/manual.js"></script>
   <script src="src/scene3d.js"></script>

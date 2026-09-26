@@ -78,6 +78,20 @@
       if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
     }
 
+    // Show every piece, with the ones in `set` (indices) in full colour and the rest washed out; null clears.
+    highlight(set) {
+      const c = this.tmp.c, white = new this.T.Color(1, 1, 1);
+      this.model.bricks.forEach((b, i) => {
+        c.set(this.model.palette[b.color].css);
+        if (set && !set.has(i)) c.lerp(white, 0.82);
+        const slot = this.slots[i];
+        slot.mesh.setColorAt(slot.index, c);
+        for (let k = 0; k < b.w * b.d; k++) this.studs.setColorAt(slot.stud + k, c);
+      });
+      for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
+    }
+
     setBackground(css) {
       this.scene.background = new this.T.Color(css);
     }
@@ -94,11 +108,13 @@
       this.ghost.scale.y = this.lh / L.BRICK_HEIGHT;
 
       // Baseplate: a couple of studs of border around the sculpture.
+      // baseplate: false, or { w, d, x0, z0 } in studs (a real baseplate under the model).
       this.floor = baseplate ? PLATE_H : 0; // where the first layer sits
-      const bw = cols + 4, bd = depth + 4;
-      const plateColor = new T.Color('#237841');
+      const bw = baseplate ? baseplate.w : cols + 4, bd = baseplate ? baseplate.d : depth + 4;
+      const plateColor = new T.Color(baseplate ? '#A0A5A9' : '#237841');
+      const px = baseplate ? baseplate.x0 + bw / 2 - cols / 2 : 0, pz = baseplate ? baseplate.z0 + bd / 2 - depth / 2 : 0;
       const base = new T.Mesh(this.boxGeometry(bw, PLATE_H, bd), new T.MeshStandardMaterial({ color: plateColor, roughness: 0.4 }));
-      base.position.set(0, 0, 0);
+      base.position.set(px, 0, pz);
       base.receiveShadow = true;
       base.castShadow = true;
       this.world.add(base);
@@ -106,14 +122,14 @@
       let k = 0;
       for (let z = 0; z < bd; z++) {
         for (let x = 0; x < bw; x++) {
-          this.tmp.m.makeTranslation(x + 0.5 - bw / 2, PLATE_H, z + 0.5 - bd / 2);
+          this.tmp.m.makeTranslation(px + x + 0.5 - bw / 2, PLATE_H, pz + z + 0.5 - bd / 2);
           baseStuds.setMatrixAt(k++, this.tmp.m);
         }
       }
       baseStuds.castShadow = baseStuds.receiveShadow = true;
       this.world.add(baseStuds);
       this.baseplate = [base, baseStuds]; // display only, and optional: not part of the kit
-      base.visible = baseStuds.visible = baseplate;
+      base.visible = baseStuds.visible = !!baseplate;
 
       // Ground to catch shadows.
       const ground = new T.Mesh(new T.CircleGeometry(Math.max(cols, depth, this.height) * 3, 64), new T.ShadowMaterial({ opacity: 0.22 }));

@@ -11,7 +11,8 @@
     buyBox: $('buyBox'), buyParts: $('buyParts'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
     life: $('life'), realHeight: $('realHeight'), lifeStats: $('lifeStats'), lifeNote: $('lifeNote'),
     cols: $('cols'), colsOut: $('colsOut'), detail: $('detail'), up: $('up'),
-    order: $('order'), hollow: $('hollow'), singles: $('singles'),
+    order: $('order'), hollow: $('hollow'), singles: $('singles'), baseplate: $('baseplate'),
+    buildCheck: $('buildCheck'), bcBadge: $('bcBadge'), bcHeadline: $('bcHeadline'), bcList: $('bcList'),
     parts: $('parts'), partsSummary: $('partsSummary'),
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
@@ -147,6 +148,7 @@
     el.partsSummary.textContent = '';
     el.buyBox.hidden = true;
     el.life.hidden = true;
+    el.buildCheck.hidden = true;
   }
 
   function useModel(root, name, extra = {}) {
@@ -408,7 +410,7 @@
   });
   // Turning the model changes where everything is, so earlier deletions no longer line up.
   el.up.addEventListener('change', () => { state.edits = []; });
-  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles]) {
+  for (const input of [el.detail, el.cols, el.up, el.order, el.hollow, el.singles, el.baseplate]) {
     input.addEventListener('change', () => build(state.playing));
   }
 
@@ -434,6 +436,7 @@
     const voxels = volume.voxels.slice();
     const size = +el.cols.value;
     for (const op of state.edits) {
+      if (op.loose) continue; // applied to the bricks, in build()
       if (op.largest) { keepLargest(voxels, cols, rows, depth); continue; }
       const [cx, cy, cz] = op.sphere.map((v) => v * size);
       const r = op.r * size, r2 = r * r;
@@ -485,10 +488,23 @@
     if (!state.source || state.source.kind !== 'model' || !state.scene) return;
     const text = el.detail.value === 'text';
     const layer = text ? L.PLATE_HEIGHT : L.BRICK_HEIGHT;
-    let model;
+    const opts = {
+      hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer, baseplate: el.baseplate.checked,
+    };
+    let model, check, fixes;
     try {
-      model = L.bricksFromVolume(applyEdits(baseVolume(text, layer), layer),
-        { hollow: el.hollow.checked, onlySingles: el.singles.checked, order: el.order.value, layer });
+      // Bricks, repaired and checked so the model holds together and every step can be built.
+      ({ model, check, fixes } = L.buildChecked(applyEdits(baseVolume(text, layer), layer), opts));
+      if (state.edits.some((op) => op.loose)) {
+        // "Remove them": drop everything that doesn't connect to the main part.
+        model.bricks = model.bricks.filter((b) => b.inMain);
+        check = L.checkBuild(model, opts);
+        model.bricks = check.order;
+        model.bricks.forEach((b, i) => { b.step = i; });
+      }
+      if (opts.baseplate) model.baseplate = L.chooseBaseplate(model);
+      model.check = check;
+      model.fixes = fixes;
     } catch (err) {
       console.error(err);
       notice(`Couldn't build that: ${err.message || err}`, true);
@@ -499,7 +515,15 @@
       return;
     }
     state.model = model;
+    state.highlight = null;
     state.parts = L.partsList(model.bricks, model.palette, model.piece);
+    if (model.baseplate) {
+      const bp = model.baseplate, lbg = model.palette.find((c) => c.name === 'Light Bluish Gray');
+      state.parts.unshift({
+        key: 'baseplate', color: lbg, a: bp.a, c: bp.c, size: `${bp.a} × ${bp.c}`, kind: 'baseplate',
+        partNum: bp.partNum, total: bp.count, placed: bp.count,
+      });
+    }
     renderParts();
     renderLifeSize();
     el.empty.hidden = true;
@@ -511,10 +535,71 @@
     state.placed = 0;
     state.active = [];
     layout();
-    state.scene.setup(model, { keepView });
+    state.scene.setup(model, { keepView, baseplate: model.baseplate || false });
+    renderChecks();
     seek(showAll ? Infinity : 0);
     setPlaying(autoplay);
   }
+
+  // ---------- build check ----------
+
+  function renderChecks() {
+    const m = state.model, c = m.check, f = m.fixes || {};
+    const loose = [...c.floating, ...c.separate].length;
+    const rows = [];
+    const row = (ok, text, actions = []) => rows.push({ ok, text, actions });
+    row('ok', `<b>${c.connections.toLocaleString()} stud connections</b>, ${c.collisions ? `<b>${c.collisions} overlaps</b>` : 'no pieces overlap'}`);
+    if (!loose) {
+      const how = [f.hidden && 'a few hidden supports inside', f.recoloured && `${f.recoloured} ${f.recoloured === 1 ? 'stud' : 'studs'} recoloured so a piece can lock a side joint`].filter(Boolean);
+      row('ok', `<b>Holds together</b> as one piece${how.length ? `, with ${how.join(' and ')}` : ''}`);
+    } else {
+      row('bad', `<b>${loose} ${m.pieces} don't connect</b> to the rest: they only touch it from the side, so they'd fall off`,
+        [['Show', 'show-loose'], ['Remove them', 'remove-loose']]);
+    }
+    row(c.buildable ? 'ok' : 'bad', c.buildable
+      ? `<b>Every step is buildable</b>${c.hanging ? `: ${c.hanging} ${m.pieces} clip on underneath the one above (the steps say when)` : ''}`
+      : '<b>Some steps can\'t be built</b> until the loose pieces are fixed');
+    if (m.baseplate) {
+      row('ok', `<b>Stands on a ${m.baseplate.a} × ${m.baseplate.c} baseplate</b>${m.baseplate.count > 1 ? ` (${m.baseplate.count} of them)` : ''}, which holds the bottom together`);
+    } else if (c.stable) {
+      row('ok', `<b>Stands on its own</b>: its weight is ${c.margin.toFixed(1)} studs inside its base`);
+    } else {
+      row('warn', '<b>Would tip over</b>: its weight isn\'t over its base', [['Add a baseplate', 'baseplate']]);
+    }
+    if (c.weak.length) {
+      row('warn', `<b>${c.weak.length} weak ${c.weak.length === 1 ? 'spot' : 'spots'}</b> held by a single stud: handle gently`, [['Show', 'show-weak']]);
+    } else {
+      row('ok', '<b>No weak spots</b> hanging on a single stud');
+    }
+    if (f.specks) row('info', `Left out ${f.specks} tiny loose ${f.specks === 1 ? 'bit' : 'bits'} that couldn't attach to anything`);
+
+    const issues = rows.filter((r) => r.ok === 'bad' || r.ok === 'warn').length;
+    const bad = rows.some((r) => r.ok === 'bad');
+    el.buildCheck.dataset.state = bad ? 'bad' : issues ? 'warn' : 'ok';
+    el.bcBadge.textContent = bad ? '!' : issues ? '!' : '✓';
+    el.bcHeadline.textContent = bad ? 'Build check: needs a fix' : issues ? 'Build check: buildable, with notes' : 'Build check: ready to build';
+    const icon = { ok: '✓', warn: '!', bad: '✕', info: 'i' };
+    el.bcList.innerHTML = rows.map((r) => `<li class="bc-${r.ok}"><span class="bc-icon">${icon[r.ok]}</span>
+      <span class="bc-text">${r.text}</span>${r.actions.map(([label, act]) => `<button type="button" class="bc-act" data-act="${act}">${label}</button>`).join('')}</li>`).join('');
+    el.buildCheck.hidden = false;
+  }
+
+  el.bcList.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || !state.model) return;
+    const act = btn.dataset.act;
+    if (act === 'remove-loose') return applyEdit({ loose: true });
+    if (act === 'baseplate') { el.baseplate.checked = true; return build(false, { keepView: true, showAll: true }); }
+    // Show: the problem pieces in colour, everything else washed out (press again to go back).
+    const which = act === 'show-weak' ? (b) => b.weak : (b) => !b.inMain || b.loose;
+    if (state.highlight === act) { state.highlight = null; state.scene.highlight(null); btn.textContent = 'Show'; return; }
+    for (const other of el.bcList.querySelectorAll('[data-act^="show"]')) other.textContent = 'Show';
+    state.highlight = act;
+    setPlaying(false);
+    seek(Infinity);
+    state.scene.highlight(new Set(state.model.bricks.map((b, i) => (which(b) ? i : -1)).filter((i) => i >= 0)));
+    btn.textContent = 'Hide';
+  });
 
   // ---------- removing parts of the model ----------
 
@@ -618,7 +703,7 @@
     state.placed = Math.max(0, Math.min(total, n));
     state.active = [];
     state.acc = 0;
-    for (const p of state.parts) p.placed = 0;
+    for (const p of state.parts) p.placed = p.kind === 'baseplate' ? p.total : 0;
     for (let i = 0; i < state.placed; i++) partFor(state.model.bricks[i]).placed++;
     state.scene.showUpTo(state.placed);
     state.uiDirty = true;
@@ -626,6 +711,11 @@
 
   function setPlaying(on) {
     if (!state.model) return;
+    if (on && state.highlight) {
+      state.highlight = null;
+      state.scene.highlight(null);
+      for (const b of el.bcList.querySelectorAll('[data-act^="show"]')) b.textContent = 'Show';
+    }
     if (on && state.placed >= state.model.bricks.length) seek(0);
     state.playing = on;
     state.acc = 1; // place the first brick immediately
@@ -725,7 +815,7 @@
       el.swatch.style.background = c.css;
       el.swatch.hidden = false;
       el.caption.textContent = next
-        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1} (the glowing spot)`
+        ? `Next: ${next.size} ${c.name} ${m.piece}, layer ${next.level + 1} ${next.hanging ? '(clip it on under the piece above)' : '(the glowing spot)'}`
         : `${shown.size} ${c.name} ${m.piece}, layer ${shown.level + 1} of ${m.rows}`;
     } else {
       el.swatch.hidden = true;

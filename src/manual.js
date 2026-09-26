@@ -156,9 +156,19 @@
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
       doc.text(`${(model.cols * 0.8).toFixed(1)} × ${(model.depth * 0.8).toFixed(1)} × ${(model.rows * layerMm / 10).toFixed(1)} cm when built`, M, 258);
+      const check = model.check;
+      if (check) {
+        doc.setFontSize(10);
+        doc.setTextColor(35, 132, 61);
+        const bits = [`${check.connections.toLocaleString()} stud connections`, check.collisions ? `${check.collisions} overlaps` : 'no overlaps'];
+        if (check.buildable) bits.push('every step buildable');
+        if (model.baseplate) bits.push('stands on a baseplate');
+        else if (check.stable) bits.push('stands on its own');
+        doc.text(`Build-checked: ${bits.join(' · ')}`, M, 265);
+      }
       doc.setFontSize(9);
       doc.setTextColor(120);
-      doc.text('All pieces are real LEGO® bricks and plates in colours LEGO has produced. The parts list starts on the next page.', M, 270, { maxWidth: PAGE_W - 2 * M });
+      doc.text('All pieces are real LEGO® bricks and plates in colours LEGO has produced. The parts list starts on the next page.', M, 272, { maxWidth: PAGE_W - 2 * M });
       footer(doc, page, title);
 
       // ---------- parts inventory ----------
@@ -186,7 +196,7 @@
         doc.text(`${p.total}×`, x + 36, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.text(`${p.a} × ${p.c} ${kind}`, x + 36, y + 10.5);
+        doc.text(`${p.a} × ${p.c} ${p.kind === 'baseplate' ? 'baseplate' : kind}`, x + 36, y + 10.5);
         doc.setTextColor(110);
         doc.text(`${p.color.name}${p.partNum ? ` · #${p.partNum}` : ''}`, x + 36, y + 14.5);
       });
@@ -215,10 +225,12 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(120);
-        const lastLevel = model.bricks[end - 1].level;
-        doc.text(level === lastLevel ? `Layer ${level + 1} of ${model.rows}` : `Layers ${level + 1}–${lastLevel + 1} of ${model.rows}`, M + 18, top + 9);
-
         const bricks = model.bricks.slice(start, end);
+        const lastLevel = bricks.reduce((m, b) => Math.max(m, b.level), level);
+        const hanging = bricks.filter((b) => b.hanging).length;
+        doc.text((level === lastLevel ? `Layer ${level + 1} of ${model.rows}` : `Layers ${level + 1}–${lastLevel + 1} of ${model.rows}`) +
+          (hanging ? ` · clip ${hanging} ${hanging === 1 ? 'piece' : 'pieces'} on underneath` : ''), M + 18, top + 9);
+
         const below = model.bricks.filter((b) => b.level === level - 1);
         const imgW = (PAGE_W - 2 * M - 6) / 2, imgH = blockH - 44;
         doc.setDrawColor(225);

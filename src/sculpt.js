@@ -242,8 +242,15 @@
   // Greedily cover each layer with the largest same-colored bricks that fit. Alternating the
   // preferred orientation per layer makes bricks overlap the joints below, like a real build.
   // made(color, "AxB"): whether that footprint is really produced in that colour (only real pieces).
-  function tileLayer(layer, cols, depth, level, footprints, out, made) {
+  // Tiles one layer with the biggest real pieces, bonding it to the layer below like a brick wall:
+  // a piece scores for bridging a joint underneath (tying two pieces below together) and loses points
+  // for ending right above one (joints stacked in a line split a wall into separate towers).
+  // below: which piece (index into out) fills each cell of the layer underneath, or -1.
+  // bonds: optional [cellA, cellB] pairs in this layer that should end up in the same piece (the build
+  // check uses them to lock a part that only touches the rest from the side).
+  function tileLayer(layer, cols, depth, level, footprints, out, made, below, bonds) {
     const used = new Uint8Array(cols * depth);
+    const owner = new Int32Array(cols * depth).fill(-1);
     const along = level % 2 === 0;
     const sizes = [];
     for (const [a, b] of footprints) {
@@ -268,22 +275,68 @@
       }
       return true;
     };
+    const open = (xx, zz) => xx >= 0 && zz >= 0 && xx < cols && zz < depth && layer[zz * cols + xx] >= 0;
+    const ownersBelow = new Set();
+    const inside = (k, x, z, w, d) => {
+      const kx = k % cols, kz = Math.floor(k / cols);
+      return kx >= x && kx < x + w && kz >= z && kz < z + d;
+    };
+    const score = (x, z, w, d) => {
+      let s = w * d;
+      if (bonds) for (const [a, b] of bonds) if (inside(a, x, z, w, d) && inside(b, x, z, w, d)) s += 60;
+      if (!below) return s;
+      ownersBelow.clear();
+      for (let zz = z; zz < z + d; zz++) for (let xx = x; xx < x + w; xx++) {
+        const o = below[zz * cols + xx];
+        if (o >= 0) ownersBelow.add(o);
+      }
+      if (ownersBelow.size) s += 20 + 8 * (ownersBelow.size - 1); // rests on something, ties pieces together
+      // Edges that sit exactly over a joint in the layer below, where this layer continues.
+      const joint = (ax, az, bx, bz) => {
+        if (!open(bx, bz)) return 0;
+        const oa = below[az * cols + ax], ob = below[bz * cols + bx];
+        return oa >= 0 && ob >= 0 && oa !== ob ? 1 : 0;
+      };
+      let stacked = 0;
+      for (let zz = z; zz < z + d; zz++) stacked += joint(x, zz, x - 1, zz) + joint(x + w - 1, zz, x + w, zz);
+      for (let xx = x; xx < x + w; xx++) stacked += joint(xx, z, xx, z - 1) + joint(xx, z + d - 1, xx, z + d);
+      return s - 5 * stacked;
+    };
+    const put = (x, z, w, d, c) => {
+      const id = out.length;
+      for (let zz = z; zz < z + d; zz++) for (let xx = x; xx < x + w; xx++) { used[zz * cols + xx] = 1; owner[zz * cols + xx] = id; }
+      out.push({ x, z, level, w, d, color: c });
+    };
+    // Seams to lock first: one piece straddling both cells.
+    if (bonds) {
+      for (const [a, b] of bonds) {
+        const c = layer[a];
+        if (c < 0 || layer[b] !== c || used[a] || used[b]) continue;
+        const x = Math.min(a % cols, b % cols), z = Math.min(Math.floor(a / cols), Math.floor(b / cols));
+        const w = a % cols === b % cols ? 1 : 2, d = w === 1 ? 2 : 1;
+        if (made(c, '1x2')) put(x, z, w, d, c);
+      }
+    }
     for (let z = 0; z < depth; z++) {
       for (let x = 0; x < cols; x++) {
         const i = z * cols + x;
         if (used[i] || layer[i] < 0) continue;
         const c = layer[i];
+        let best = null, bestScore = -Infinity;
         for (const [w, d] of available(c)) {
           if (!fits(x, z, w, d, c)) continue;
-          for (let zz = z; zz < z + d; zz++) for (let xx = x; xx < x + w; xx++) used[zz * cols + xx] = 1;
-          out.push({ x, z, level, w, d, color: c });
-          break;
+          const sc = score(x, z, w, d);
+          if (sc > bestScore) { bestScore = sc; best = [w, d]; }
         }
+        const [w, d] = best || [1, 1];
+        put(x, z, w, d, c);
       }
     }
+    return owner;
   }
 
-  // Every order builds layer by layer from the bottom, so no brick ever floats in mid-air.
+  // Every order builds layer by layer from the bottom (the build check then moves any piece that has
+  // nothing under it to right after the piece it hangs from).
   const ORDERS = {
     sweep: (bricks) => bricks.sort((a, b) => a.level - b.level || a.z - b.z || a.x - b.x),
     zigzag: (bricks) => bricks.sort((a, b) =>
@@ -467,8 +520,10 @@
   }
 
   // Solid color volume -> bricks. voxels[(level * depth + z) * cols + x] is a palette index or -1.
+  // force: optional Uint8Array over the voxels; 1 keeps that voxel even inside a hollow model (the build
+  // check uses it for hidden pieces that tie loose parts on).
   L.bricksFromVolume = function ({ cols, rows, depth, voxels }, {
-    hollow = true, onlySingles = false, order = 'sweep', layer: layerHeight = L.BRICK_HEIGHT,
+    hollow = true, onlySingles = false, order = 'sweep', layer: layerHeight = L.BRICK_HEIGHT, force = null, bonds = null,
   }) {
     // Below the bottom layer is the baseplate, which counts as solid.
     const solid = (x, level, z) => {
@@ -476,10 +531,22 @@
       if (x < 0 || x >= cols || level >= rows || z < 0 || z >= depth) return false;
       return voxels[(level * depth + z) * cols + x] >= 0;
     };
-    // Hollow: keep only voxels that touch the outside, like a real brick-built sculpture.
-    const visible = (x, level, z) =>
-      !hollow || !(solid(x - 1, level, z) && solid(x + 1, level, z) && solid(x, level - 1, z) &&
-        solid(x, level + 1, z) && solid(x, level, z - 1) && solid(x, level, z + 1));
+    // Hollow: keep only voxels that touch the outside, like a real brick-built sculpture. "Touch" includes
+    // along an edge, not just a face: where two shapes meet (a stem under a cap), the pieces in the
+    // inner corner are what joins them, and a curved wall stays continuous instead of meeting at corners.
+    const air = (x, level, z) => !solid(x, level, z);
+    const visible = (x, level, z) => {
+      if (!hollow) return true;
+      for (let dl = -1; dl <= 1; dl++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        if ((dl && dz && dx) || !(dl || dz || dx)) continue; // 18 neighbours: faces and edges
+        if (air(x + dx, level + dl, z + dz)) return true;
+      }
+      return false;
+    };
+    // ...plus a second layer under roofs and over overhangs: a single layer of pieces side by side isn't
+    // held together by anything, two layers with crossing joints are.
+    const keep = (x, level, z) => visible(x, level, z) || (force && force[(level * depth + z) * cols + x]) ||
+      (solid(x, level + 1, z) && air(x, level + 2, z)) || (solid(x, level - 1, z) && air(x, level - 2, z));
 
     const kind = layerHeight < L.BRICK_HEIGHT ? 'plate' : 'brick';
     const made = (c, size) => {
@@ -489,15 +556,17 @@
     const bricks = [];
     const layer = new Int16Array(cols * depth);
     const footprints = onlySingles ? [[1, 1]] : FOOTPRINTS;
+    let below = null;
+    const at = (x, level, z) => voxels[(level * depth + z) * cols + x];
     for (let level = 0; level < rows; level++) {
       layer.fill(-1);
       for (let z = 0; z < depth; z++) {
         for (let x = 0; x < cols; x++) {
-          const c = voxels[(level * depth + z) * cols + x];
-          if (c >= 0 && visible(x, level, z)) layer[z * cols + x] = c;
+          const c = at(x, level, z);
+          if (c >= 0 && keep(x, level, z)) layer[z * cols + x] = c;
         }
       }
-      tileLayer(layer, cols, depth, level, footprints, bricks, made);
+      below = tileLayer(layer, cols, depth, level, footprints, bricks, made, below, bonds && bonds.get(level));
     }
     ORDERS[order](bricks, cols, depth);
     bricks.forEach((b, i) => { b.step = i; });
