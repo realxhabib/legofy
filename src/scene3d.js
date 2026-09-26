@@ -1,8 +1,9 @@
-// three.js scene: a baseplate with the sculpture built on it from real-looking bricks.
+// three.js scene: the sculpture built from real-looking bricks in a bright studio (optionally on a baseplate).
 // Units: 1 = one stud (8mm). Bricks are 1.2 tall, studs are 0.6 wide and 0.2 tall.
 (function (L) {
   const STUD_R = 0.3, STUD_H = 0.2, PLATE_H = 0.4, GAP = 0.02;
-  const DROP_HEIGHT = 7;
+  // Pieces fly in from all around (up and to the side), leaving a short motion trail.
+  const FLY_UP = 9, FLY_OUT = 7, TRAIL = 5, TRAIL_GAP = 0.05, MAX_TRAIL = 3000;
 
   class Scene3D {
     constructor(canvas, T) {
@@ -25,7 +26,7 @@
       this.controls.autoRotateSpeed = 0.8;
       this.controls.addEventListener('start', () => { this.follow = false; this.controls.autoRotate = false; });
 
-      this.scene.add(new T.HemisphereLight(0xffffff, 0x445066, 1.4));
+      this.scene.add(new T.HemisphereLight(0xffffff, 0x8aa4b8, 1.7));
       const sun = new T.DirectionalLight(0xffffff, 2.2);
       sun.castShadow = true;
       sun.shadow.mapSize.set(2048, 2048);
@@ -40,7 +41,7 @@
 
       this.tmp = {
         m: new T.Matrix4(), s: new T.Matrix4(), q: new T.Quaternion(), p: new T.Vector3(), c: new T.Color(),
-        axis: new T.Vector3(0, 0, 1), one: new T.Vector3(1, 1, 1),
+        axis: new T.Vector3(0, 0, 1), one: new T.Vector3(1, 1, 1), sc: new T.Vector3(),
       };
       this.zero = new T.Matrix4().makeScale(0, 0, 0);
 
@@ -53,6 +54,14 @@
       this.ghost.add(this.ghostEdges);
       this.ghost.visible = false;
       this.scene.add(this.ghost);
+
+      // Motion trails: see-through copies of flying pieces a moment behind them.
+      this.trail = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1),
+        new T.MeshBasicMaterial({ transparent: true, opacity: 0.16, depthWrite: false }), MAX_TRAIL);
+      this.trail.frustumCulled = false;
+      this.trail.count = 0;
+      this.trailCount = 0;
+      this.scene.add(this.trail);
     }
 
     // For instruction pictures: pieces before `from` are washed out, so the new ones stand out.
@@ -73,7 +82,7 @@
       this.scene.background = new this.T.Color(css);
     }
 
-    setup(model, { keepView = false } = {}) {
+    setup(model, { keepView = false, baseplate = false } = {}) {
       const T = this.T;
       this.model = model;
       this.world.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -85,6 +94,7 @@
       this.ghost.scale.y = this.lh / L.BRICK_HEIGHT;
 
       // Baseplate: a couple of studs of border around the sculpture.
+      this.floor = baseplate ? PLATE_H : 0; // where the first layer sits
       const bw = cols + 4, bd = depth + 4;
       const plateColor = new T.Color('#237841');
       const base = new T.Mesh(this.boxGeometry(bw, PLATE_H, bd), new T.MeshStandardMaterial({ color: plateColor, roughness: 0.4 }));
@@ -102,10 +112,11 @@
       }
       baseStuds.castShadow = baseStuds.receiveShadow = true;
       this.world.add(baseStuds);
-      this.baseplate = [base, baseStuds]; // display only; hidden in printed instructions
+      this.baseplate = [base, baseStuds]; // display only, and optional: not part of the kit
+      base.visible = baseStuds.visible = baseplate;
 
       // Ground to catch shadows.
-      const ground = new T.Mesh(new T.CircleGeometry(Math.max(cols, depth, this.height) * 3, 64), new T.ShadowMaterial({ opacity: 0.35 }));
+      const ground = new T.Mesh(new T.CircleGeometry(Math.max(cols, depth, this.height) * 3, 64), new T.ShadowMaterial({ opacity: 0.22 }));
       ground.rotation.x = -Math.PI / 2;
       ground.position.y = -0.001;
       ground.receiveShadow = true;
@@ -164,7 +175,7 @@
       const hit = this.raycaster.intersectObjects([...this.meshes, this.studs], false)[0];
       if (!hit) return null;
       const p = hit.point.clone().addScaledVector(this.raycaster.ray.direction, 0.3);
-      return { world: hit.point, x: p.x + this.model.cols / 2, y: p.y - PLATE_H, z: p.z + this.model.depth / 2 };
+      return { world: hit.point, x: p.x + this.model.cols / 2, y: p.y - this.floor, z: p.z + this.model.depth / 2 };
     }
 
     // A see-through red ball showing what the eraser will remove (radius in studs), or null to hide it.
@@ -194,16 +205,18 @@
 
     brickOrigin(b) {
       const { cols, depth } = this.model;
-      return [b.x + b.w / 2 - cols / 2, PLATE_H + b.level * this.lh, b.z + b.d / 2 - depth / 2];
+      return [b.x + b.w / 2 - cols / 2, this.floor + b.level * this.lh, b.z + b.d / 2 - depth / 2];
     }
 
-    // Pose one brick: lift = height above its final spot, tilt = rotation in radians.
-    pose(i, lift = 0, tilt = 0) {
+    // Pose one brick: offset = [x, y, z] away from its final spot, tilt = rotation in radians.
+    pose(i, offset = null, tilt = 0) {
       const { m, s, q, p, axis, one } = this.tmp;
       const b = this.model.bricks[i];
       const slot = this.slots[i];
       const [x, y, z] = this.brickOrigin(b);
-      m.compose(p.set(x, y + lift, z), q.setFromAxisAngle(axis, tilt), one);
+      p.set(x, y, z);
+      if (offset) p.set(x + offset[0], y + offset[1], z + offset[2]);
+      m.compose(p, q.setFromAxisAngle(axis, tilt), one);
       slot.mesh.setMatrixAt(slot.index, m);
       for (let dz = 0; dz < b.d; dz++) {
         for (let dx = 0; dx < b.w; dx++) {
@@ -230,11 +243,38 @@
 
     place(i) { this.pose(i); }
 
-    // t in [0, 1]: falls from above with a little bounce and a settling wobble.
+    // Where piece i flies in from, and how it's turned: a steady direction per piece, from all around.
+    flight(i, t) {
+      const h = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+      const r = h - Math.floor(h);
+      const angle = r * Math.PI * 2;
+      const e = 1 - Math.pow(1 - t, 3); // fast, then settling in
+      const k = 1 - e;
+      return {
+        offset: [Math.cos(angle) * FLY_OUT * k, FLY_UP * k * (0.7 + 0.3 * r), Math.sin(angle) * FLY_OUT * k],
+        tilt: (r - 0.5) * 1.6 * k * k,
+      };
+    }
+
+    // t in [0, 1]: piece i flies into place, with a fading trail behind it.
     drop(i, t) {
-      const e = easeOutBounce(t);
-      const side = i % 2 ? 1 : -1;
-      this.pose(i, DROP_HEIGHT * (1 - e), side * 0.35 * (1 - t) * (1 - t));
+      const { offset, tilt } = this.flight(i, t);
+      this.pose(i, offset, tilt);
+      if (t <= 0 || t >= 1) return;
+      const b = this.model.bricks[i];
+      const [x, y, z] = this.brickOrigin(b);
+      const { m, q, p, axis, c } = this.tmp;
+      c.set(this.model.palette[b.color].css);
+      for (let k = 1; k <= TRAIL && this.trailCount < MAX_TRAIL; k++) {
+        const tk = t - k * TRAIL_GAP;
+        if (tk <= 0) break;
+        const f = this.flight(i, tk);
+        const sc = this.tmp.sc.set(b.w * (1 - k * 0.06), this.lh, b.d * (1 - k * 0.06));
+        m.compose(p.set(x + f.offset[0], y + f.offset[1] + this.lh / 2, z + f.offset[2]), q.setFromAxisAngle(axis, f.tilt), sc);
+        this.trail.setMatrixAt(this.trailCount, m);
+        this.trail.setColorAt(this.trailCount, c);
+        this.trailCount++;
+      }
     }
 
     setGhost(i, now) {
@@ -253,7 +293,7 @@
     // Where the camera looks: the middle of what has been built so far (never below a third of the way up).
     focusTarget() {
       const h = Math.max(this.builtRows, 4, this.model.rows / 3) * this.lh;
-      return new this.T.Vector3(0, PLATE_H + h * 0.5, 0);
+      return new this.T.Vector3(0, this.floor + h * 0.5, 0);
     }
 
     // rows: how many layers have been built so far.
@@ -262,12 +302,13 @@
     }
 
     // Front three-quarter view that fits the whole sculpture, slowly orbiting while following the build.
-    resetView() {
+    // zoom < 1 frames the model tighter (the build video uses it).
+    resetView(zoom = 1) {
       const { cols, depth } = this.model;
       const fov = (this.camera.fov * Math.PI) / 180;
       const aspect = Math.max(0.5, this.camera.aspect);
       const size = Math.max(this.height, Math.hypot(cols, depth) / aspect);
-      const dist = (size * 0.75) / Math.tan(fov / 2) + 4;
+      const dist = ((size * 0.66) / Math.tan(fov / 2) + 4) * zoom;
       const target = this.focusTarget();
       this.controls.target.copy(target);
       this.camera.position.set(target.x + dist * 0.5, target.y + dist * 0.35, target.z + dist * 0.8);
@@ -298,6 +339,11 @@
         this.camera.position.add(delta);
       }
       this.controls.update(dt / 1000);
+      // Trails were gathered by drop() since the last frame.
+      this.trail.count = this.trailCount;
+      this.trail.instanceMatrix.needsUpdate = true;
+      if (this.trail.instanceColor) this.trail.instanceColor.needsUpdate = true;
+      this.trailCount = 0;
       this.renderer.render(this.scene, this.camera);
     }
 
@@ -305,14 +351,6 @@
       this.render();
       this.canvas.toBlob(cb, 'image/png');
     }
-  }
-
-  function easeOutBounce(t) {
-    const n = 7.5625, d = 2.75;
-    if (t < 1 / d) return n * t * t;
-    if (t < 2 / d) return n * (t -= 1.5 / d) * t + 0.75;
-    if (t < 2.5 / d) return n * (t -= 2.25 / d) * t + 0.9375;
-    return n * (t -= 2.625 / d) * t + 0.984375;
   }
 
   L.Scene3D = Scene3D;

@@ -12,7 +12,8 @@
   --accent-ink: #ffffff;
   --yellow: #f2cd37;
   --blue: #0055bf;
-  --stage: #262a31;
+  --stage: #a9d6ee;
+  --stage-ink: #17384d;
   --shadow: 0 1px 2px rgba(30, 25, 15, 0.06), 0 6px 20px -8px rgba(30, 25, 15, 0.18);
   --radius: 18px;
   color-scheme: light;
@@ -27,7 +28,7 @@
     --line: #2c3037;
     --field: #15181c;
     --accent-soft: #3a1415;
-    --stage: #0d0f12;
+    --stage: #93c4de;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -10px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
@@ -265,10 +266,8 @@ input[type="range"]::-moz-range-thumb {
 .canvas-wrap {
   position: relative; display: grid; place-items: center;
   min-height: 460px; border-radius: 22px; overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.08), transparent 60%),
-    linear-gradient(180deg, #30353d, var(--stage));
-  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  background: var(--stage);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 canvas { display: block; border-radius: 14px; touch-action: none; cursor: grab; }
 canvas:active { cursor: grabbing; }
@@ -278,19 +277,19 @@ canvas:active { cursor: grabbing; }
   background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 12px; white-space: nowrap;
   pointer-events: none; backdrop-filter: blur(6px);
 }
-.empty { text-align: center; color: #c3c8cf; padding: 32px 24px; max-width: 520px; }
-.empty h2 { margin: 6px 0 8px; color: #fff; font: 900 30px/1.15 Nunito, Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
+.empty { text-align: center; color: color-mix(in srgb, var(--stage-ink) 80%, transparent); padding: 32px 24px; max-width: 520px; }
+.empty h2 { margin: 6px 0 8px; color: var(--stage-ink); font: 900 30px/1.15 Nunito, Inter, system-ui, sans-serif; letter-spacing: -0.01em; }
 .empty p { margin: 0 auto; font-size: 15px; max-width: 44ch; }
 .empty-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 22px; }
 .big-btn {
   height: 46px; padding: 0 22px; border-radius: 12px; cursor: pointer; font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.08); color: #fff;
+  border: 1px solid rgba(23, 56, 77, 0.12); background: rgba(255, 255, 255, 0.85); color: var(--stage-ink);
   transition: background-color 0.12s, transform 0.12s;
 }
-.big-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.big-btn:hover { background: #fff; }
 .big-btn:active { transform: translateY(1px); }
 .big-btn.primary {
-  border-color: transparent; background: linear-gradient(180deg, #e0201d, var(--accent));
+  border-color: transparent; background: linear-gradient(180deg, #e0201d, var(--accent)); color: #fff;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2);
 }
 .empty-bricks { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
@@ -377,8 +376,8 @@ canvas:active { cursor: grabbing; }
   display: block; margin: 0 auto 14px; max-width: min(320px, 70%); max-height: 240px; object-fit: contain;
   border-radius: 14px; background: #fff; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
 }
-.empty-status { margin: 16px auto 0 !important; font-size: 14px; color: #fff; }
-.empty-status.error { color: #ff8a80; }
+.empty-status { margin: 16px auto 0 !important; font-size: 14px; font-weight: 600; color: var(--stage-ink); }
+.empty-status.error { color: var(--accent); }
 .big-btn:disabled { opacity: 0.6; cursor: progress; }
 
 /* ---------- Removing parts ---------- */
@@ -451,7 +450,7 @@ canvas:active { cursor: grabbing; }
   .speed input { flex: 1; width: auto; min-width: 0; }
   #view, #edit { flex: 1; }
   .spacer { display: none; }
-  .downloads { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .downloads { width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr; }
   .downloads button { padding: 0 8px; }
   .downloads #saveManual, .downloads #buyParts2 { grid-column: 1 / -1; height: 44px; }
   .edit-bar { position: static; width: calc(100% - 16px); margin: 0 8px 8px; justify-content: center; }

@@ -16,7 +16,7 @@
     canvasWrap: $('canvasWrap'), canvas: $('canvas'), empty: $('empty'), hint: $('hint'), controls: $('controls'),
     swatch: $('swatch'), caption: $('caption'), counter: $('counter'), scrub: $('scrub'),
     restart: $('restart'), back: $('back'), play: $('play'), step: $('step'), finish: $('finish'), view: $('view'),
-    speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'),
+    speed: $('speed'), speedOut: $('speedOut'), savePng: $('savePng'), saveCsv: $('saveCsv'), saveManual: $('saveManual'), saveVideo: $('saveVideo'),
     dropOverlay: $('dropOverlay'), toast: $('toast'),
   };
 
@@ -592,12 +592,12 @@
   let resizeTimer;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (state.model) layout(); }, 100);
+    resizeTimer = setTimeout(() => { if (state.model && !state.recording) layout(); }, 100);
   });
 
   // ---------- playback ----------
 
-  const bricksPerSecond = () => Math.round(Math.pow(10, (el.speed.value / 100) * 3)); // 1 .. 1000
+  const bricksPerSecond = () => state.videoBps || Math.round(Math.pow(10, (el.speed.value / 100) * 3)); // 1 .. 1000
 
   function spawn(now) {
     const i = state.placed++;
@@ -830,6 +830,71 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  const buildTitle = () => (state.source.name || '').replace(/\.[a-z0-9]+$/i, '').replace(/\s*\((sample|sample model)\)$/, '') || 'Your build';
+  const fileTitle = () => buildTitle().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'legofy';
+
+  // A square video of the whole build (about 6–14 s, then a victory lap), for sharing.
+  async function recordVideo() {
+    if (!state.model || state.recording) return;
+    const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+    const mimeType = window.MediaRecorder && el.canvas.captureStream && types.find((t) => MediaRecorder.isTypeSupported(t));
+    if (!mimeType) return notice('This browser can\'t record video. Try Chrome, Edge or Safari.', true);
+    const { scene } = state;
+    const total = state.model.bricks.length;
+    const label = el.saveVideo.textContent;
+    const css = { w: el.canvas.style.width, h: el.canvas.style.height };
+    state.recording = true;
+    setEditing(false);
+    el.saveVideo.disabled = true;
+    try {
+      // Square 1080 × 1080 frames; on screen the canvas turns square too while recording.
+      const SIZE = 1080;
+      scene.renderer.setPixelRatio(1);
+      scene.resize(SIZE, SIZE);
+      const side = Math.min(el.canvasWrap.clientWidth, window.innerHeight - 250);
+      el.canvas.style.width = el.canvas.style.height = `${Math.max(240, side)}px`;
+      state.videoBps = Math.max(1, total / Math.min(14, Math.max(6, total / 40)));
+      setPlaying(false);
+      seek(0);
+      scene.resetView(0.85);
+      scene.controls.autoRotateSpeed = 2.4;
+      const chunks = [];
+      const recorder = new MediaRecorder(el.canvas.captureStream(30), { mimeType, videoBitsPerSecond: 8e6 });
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
+      recorder.start(500);
+      setPlaying(true);
+      await new Promise((resolve) => {
+        const check = () => {
+          el.saveVideo.textContent = `🎬 ${Math.round((state.placed / total) * 100)}%`;
+          if (state.placed >= total && !state.active.length) resolve(); else setTimeout(check, 100);
+        };
+        check();
+      });
+      el.saveVideo.textContent = '🎬 …';
+      await new Promise((r) => setTimeout(r, 2500)); // a last look around the finished build
+      recorder.stop();
+      await stopped;
+      const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+      download(new Blob(chunks, { type: mimeType.split(';')[0] }), `${fileTitle()}-build.${ext}`);
+      notice('Video saved.');
+    } catch (err) {
+      console.error(err);
+      notice(`Couldn't record the video: ${err.message || err}`, true);
+    } finally {
+      state.recording = false;
+      state.videoBps = null;
+      scene.controls.autoRotateSpeed = 0.8;
+      scene.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      el.canvas.style.width = css.w;
+      el.canvas.style.height = css.h;
+      layout();
+      el.saveVideo.disabled = false;
+      el.saveVideo.textContent = label;
+    }
+  }
+  el.saveVideo.addEventListener('click', recordVideo);
+
   el.savePng.addEventListener('click', () => {
     state.scene.snapshot((blob) => download(blob, 'legofy-build.png'));
   });
@@ -846,12 +911,12 @@
       const access = await L.manualAccess({ model: state.model, source: state.source });
       if (!access.allowed) { notice(access.message || 'The instructions aren\'t available right now.', true); return; }
       const jsPDF = await state.T.loadJsPdf();
-      const title = (state.source.name || '').replace(/\.[a-z0-9]+$/i, '').replace(/\s*\((sample|sample model)\)$/, '') || 'Your build';
+      const title = buildTitle();
       const blob = await L.makeManual({
         T: state.T, jsPDF, model: state.model, parts: state.parts, title,
         onProgress: (f, text) => { el.saveManual.textContent = `${Math.round(f * 100)}%`; notice(text); },
       });
-      download(blob, `${title.replace(/[^\w-]+/g, '-').toLowerCase() || 'legofy'}-instructions.pdf`);
+      download(blob, `${fileTitle()}-instructions.pdf`);
       notice('Instructions downloaded.');
     } catch (err) {
       console.error(err);
