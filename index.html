@@ -42,7 +42,7 @@
         <button id="saveGlb" type="button" class="link-btn save-glb" hidden>⬇ Download this 3D model (GLB)</button>
         <button id="walkBtn" type="button" class="walk-btn">
           <span class="walk-icon" aria-hidden="true">📷</span>
-          <span><strong>Walk around it with your camera</strong><small>Snap the front, back and top for the most accurate model</small></span>
+          <span><strong>Walk around it with your camera</strong><small>Snap the front, back and left side for the most accurate model</small></span>
         </button>
         <p id="notice" class="notice" hidden></p>
         <div class="ai3d" data-source="image" hidden>
@@ -134,12 +134,10 @@
           <p id="emptyText">Drop in a photo and our AI turns it into a 3D model, or upload a 3D model you already have.
             You get a brick-by-brick build, printable instructions, and every real LEGO piece you need, ready to order.</p>
           <div id="viewsBox" class="views" hidden>
-            <p class="views-tip"><b>More photos, more accurate model:</b> add the back and the top. The sides are optional.</p>
-            <div class="view-slots">
+            <p class="views-tip"><b>More photos, more accurate model:</b> add the back and the left side (both, for the AI to use them).</p>
+            <div class="view-slots two">
               <label class="view-slot" data-view="back"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Back</span></label>
-              <label class="view-slot" data-view="top"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Top</span></label>
-              <label class="view-slot optional" data-view="left"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Left side</span><span class="vs-opt">optional</span></label>
-              <label class="view-slot optional" data-view="right"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Right side</span><span class="vs-opt">optional</span></label>
+              <label class="view-slot" data-view="left"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Left side</span></label>
             </div>
           </div>
           <div class="empty-actions">

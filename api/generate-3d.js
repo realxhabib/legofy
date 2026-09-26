@@ -1,15 +1,16 @@
-// Vercel serverless function: turns photos into a textured 3D model (Hunyuan 3D v3.1 Pro, run on fal.ai).
+// Vercel serverless function: turns photos into a textured 3D model (Hunyuan3D v2, run on fal.ai).
 // The API key stays here on the server (set FAL_KEY in the Vercel project's environment variables);
 // the page only ever talks to this function, and never names the provider to visitors.
 //
-//   POST /api/generate-3d   { views: { front, back?, left?, right?, top? }, payment? }  ->  { id }
+//   POST /api/generate-3d   { views: { front, back?, left? }, payment? }  ->  { id }
 //        payment: the paid Stripe Checkout session id, required once Stripe is set up (see _stripe.js);
 //        each payment covers one model plus one retry.
 //        (each view a "data:image/jpeg;base64,..." URL; { image } alone still works as the front)
 //   GET  /api/generate-3d?id=<id from POST>  ->  { status, position?, modelUrl? }
 //
-// The front photo is required; every other side given makes the back and sides more accurate.
-// Textured (the bricks take their colours from it); PBR maps aren't needed for bricks.
+// Front, back and left side together use the multi-view model (more accurate back and sides); a front
+// photo alone (or without both of the others) uses the single-photo model. Always textured: the bricks
+// take their colours from it.
 //
 // Jobs go through fal's queue, so a slow generation never runs into the function's time limit.
 
@@ -18,17 +19,14 @@ const payments = require('./_stripe');
 const QUEUE = 'https://queue.fal.run';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;   // one photo
 const MAX_BODY_BYTES = 12 * 1024 * 1024;   // all of them
-const VIEWS = ['front', 'back', 'left', 'right', 'top'];
+const VIEWS = ['front', 'back', 'left'];
 
-const MODEL = 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d';
-const input = (v) => ({
-  input_image_url: v.front,
-  ...(v.back && { back_image_url: v.back }),
-  ...(v.left && { left_image_url: v.left }),
-  ...(v.right && { right_image_url: v.right }),
-  ...(v.top && { top_image_url: v.top }),
-  generate_type: 'Normal',
-});
+const MULTI = 'fal-ai/hunyuan3d/v2/multi-view';
+const SINGLE = 'fal-ai/hunyuan3d/v2';
+const MODEL = SINGLE; // both live under the same app id, for status checks
+const request = (v) => (v.back && v.left
+  ? { endpoint: MULTI, input: { front_image_url: v.front, back_image_url: v.back, left_image_url: v.left, textured_mesh: true } }
+  : { endpoint: SINGLE, input: { input_image_url: v.front, textured_mesh: true } });
 // A job's status and result live under the app id (the first two path segments of the endpoint).
 const appOf = (endpoint) => endpoint.split('/').slice(0, 2).join('/');
 
@@ -113,7 +111,8 @@ module.exports = async function handler(req, res) {
         if (!payment.paid) return send(res, 402, { error: 'Payment needed.', payment: 'required' });
         if (!payment.left) return send(res, 402, { error: 'This payment has been used up. Please pay for a new model.', payment: 'used' });
       }
-      const job = await fal(`${QUEUE}/${MODEL}`, { method: 'POST', body: JSON.stringify(input(views)) });
+      const { endpoint, input } = request(views);
+      const job = await fal(`${QUEUE}/${endpoint}`, { method: 'POST', body: JSON.stringify(input) });
       if (payment) await payments.useOnce(payment, job.request_id);
       return send(res, 200, { id: job.request_id });
     }

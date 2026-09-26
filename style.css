@@ -401,6 +401,7 @@ canvas:active { cursor: grabbing; }
 .views { display: flex; flex-direction: column; gap: 10px; margin: 16px auto 0; max-width: 460px; }
 .views-tip { margin: 0; font-size: 13px; }
 .view-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.view-slots.two { grid-template-columns: repeat(2, 120px); justify-content: center; }
 .view-slot {
   position: relative; aspect-ratio: 1; border-radius: 12px; cursor: pointer; overflow: hidden;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -537,7 +538,7 @@ body.capturing { overflow: hidden; }
   position: absolute; bottom: 0; left: 0; right: 0; display: flex; flex-direction: column; gap: 12px;
   padding: 30px 16px calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
 }
-.cap-thumbs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cap-thumbs { display: grid; grid-template-columns: repeat(3, 90px); justify-content: center; gap: 10px; }
 .cap-thumb {
   aspect-ratio: 3 / 4; border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.35); cursor: pointer;
   background: rgba(255, 255, 255, 0.1) center / cover no-repeat; color: #fff; font-size: 10px; font-weight: 700;

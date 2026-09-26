@@ -478,7 +478,7 @@
 
   // ---------- extra photos (back, sides, top) for a more accurate model ----------
 
-  const VIEW_NAMES = { back: 'Back', left: 'Left side', right: 'Right side', top: 'Top' };
+  const VIEW_NAMES = { back: 'Back', left: 'Left side' };
 
   // A photo file as something drawable (HEIC decoded like the main photo).
   async function readPhoto(file) {

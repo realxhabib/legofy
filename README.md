@@ -7,11 +7,10 @@ don't want, download step-by-step instructions, and order every piece.
 
 1. **Start with something:**
    - **A photo:** drop it in (JPEG, PNG or an iPhone HEIC) and press **Generate 3D model**. The AI models
-     the whole object in a minute or two. Optionally add photos of the **back and top** (and, optionally, the
-     sides) for a more accurate model.
-   - **Walk around it with the camera:** a guided capture screen asks for the front, back and top in
-     turn, one tap each, then offers the left and right sides as optional extras, and fills the same
-     photo slots (`src/capture.js`).
+     the whole object in a minute or two. Optionally add photos of the **back and left side** (both) for a
+     more accurate model.
+   - **Walk around it with the camera:** a guided capture screen asks for the front, back and left side
+     in turn, one tap each, and fills the same photo slots (`src/capture.js`).
    - **A 3D model:** drop in a GLB, OBJ (with its `.mtl` and texture), PLY, STL or USDZ, for example a scan
      exported from Scaniverse, Polycam or KIRI Engine. Apple's binary USDZ can't be read by browsers yet.
      If it comes in lying on its side, change **Which way is up?**.
@@ -50,11 +49,11 @@ so it only works on the Vercel deployment.
 Import the repo in Vercel with no build command and `/` as the output directory. The `api/` folder
 becomes the serverless function.
 
-**Photo → 3D model** uses Hunyuan 3D v3.1 Pro on fal.ai through `api/generate-3d.js` (front photo plus any of back / left / right / top). Visitors never see the
+**Photo → 3D model** uses Hunyuan3D v2 on fal.ai through `api/generate-3d.js`: its multi-view version with front, back and left-side photos, else the single-photo version. Visitors never see the
 provider's name, and the key never reaches the browser. The function holds the key, only accepts requests
 from the site itself, and uses the provider's queue so slow generations don't hit the function's time
 limit. To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**,
-add `FAL_KEY` and redeploy. Each generation costs about $0.375, or $0.525 when extra photos are sent
+add `FAL_KEY` and redeploy. Each generation costs about $0.48
 (textured, since the bricks take their colours from it), and anyone who can open the site can start one, so set a spending limit with the
 provider. Payments can gate this later (see Stripe below).
 
