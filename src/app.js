@@ -383,7 +383,7 @@
           const stripe = await loadStripe();
           const r = await fetch('api/checkout', { method: 'POST' });
           const s = await r.json();
-          if (!r.ok) throw new Error(s.error || 'Checkout isn\'t available right now.');
+          if (!r.ok) throw new Error((s.error || 'Checkout isn\'t available right now.') + (s.code ? ` (${s.code})` : ''));
           el.checkoutMount.innerHTML = '';
           embedded = await stripe.initEmbeddedCheckout({
             fetchClientSecret: async () => s.clientSecret,

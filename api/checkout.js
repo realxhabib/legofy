@@ -45,6 +45,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return send(res, 405, { error: 'Use GET or POST.' });
   } catch (err) {
-    return send(res, err.status || 502, { error: err.message });
+    return send(res, err.status || 502, { error: err.message, code: err.code });
   }
 };

@@ -32,6 +32,8 @@ async function stripe(path, { method = 'GET', body } = {}) {
     method,
     headers: {
       Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      // Pinned, so the account's default API version can't change how these requests behave.
+      'Stripe-Version': '2024-06-20',
       ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
     },
     body: body ? form(body).toString() : undefined,
@@ -41,6 +43,8 @@ async function stripe(path, { method = 'GET', body } = {}) {
     console.error('Stripe', r.status, JSON.stringify(data.error || data).slice(0, 500));
     const err = new Error('The payment service had a problem. Please try again.');
     err.status = 502;
+    // Stripe's error code (e.g. a missing key permission) for the browser console; never the message or key.
+    err.code = (data.error && (data.error.code || data.error.type)) || `http_${r.status}`;
     throw err;
   }
   return data;
