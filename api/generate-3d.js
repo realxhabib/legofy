@@ -1,18 +1,32 @@
-// Vercel serverless function: turns a photo into a textured 3D model (Hunyuan3D v2, run on fal.ai).
+// Vercel serverless function: turns photos into a textured 3D model (Hunyuan 3D v3.1 Pro, run on fal.ai).
 // The API key stays here on the server (set FAL_KEY in the Vercel project's environment variables);
 // the page only ever talks to this function, and never names the provider to visitors.
 //
-//   POST /api/generate-3d   { image: "data:image/jpeg;base64,..." }  ->  { id }
-//   GET  /api/generate-3d?id=<request id>  ->  { status, position?, modelUrl? }
+//   POST /api/generate-3d   { views: { front, back?, left?, right?, top? } }  ->  { id }
+//        (each view a "data:image/jpeg;base64,..." URL; { image } alone still works as the front)
+//   GET  /api/generate-3d?id=<id from POST>  ->  { status, position?, modelUrl? }
+//
+// The front photo is required; every other side given makes the back and sides more accurate.
+// Textured (the bricks take their colours from it); PBR maps aren't needed for bricks.
 //
 // Jobs go through fal's queue, so a slow generation never runs into the function's time limit.
 
-const MODEL = 'fal-ai/hunyuan3d/v2';
 const QUEUE = 'https://queue.fal.run';
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;   // one photo
+const MAX_BODY_BYTES = 12 * 1024 * 1024;   // all of them
+const VIEWS = ['front', 'back', 'left', 'right', 'top'];
 
-// Requests for a job's status and result live under the app id (the first two path segments).
-const APP = MODEL.split('/').slice(0, 2).join('/');
+const MODEL = 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d';
+const input = (v) => ({
+  input_image_url: v.front,
+  ...(v.back && { back_image_url: v.back }),
+  ...(v.left && { left_image_url: v.left }),
+  ...(v.right && { right_image_url: v.right }),
+  ...(v.top && { top_image_url: v.top }),
+  generate_type: 'Normal',
+});
+// A job's status and result live under the app id (the first two path segments of the endpoint).
+const appOf = (endpoint) => endpoint.split('/').slice(0, 2).join('/');
 
 function send(res, status, body) {
   res.statusCode = status;
@@ -39,7 +53,7 @@ async function readJson(req) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > MAX_IMAGE_BYTES * 1.4) throw new Error('too large');
+    if (raw.length > MAX_BODY_BYTES * 1.4) throw new Error('too large');
   }
   return JSON.parse(raw || '{}');
 }
@@ -75,29 +89,34 @@ module.exports = async function handler(req, res) {
   try {
     if (req.method === 'POST') {
       let body;
-      try { body = await readJson(req); } catch { return send(res, 413, { error: 'That image is too large.' }); }
-      const image = body.image;
-      if (typeof image !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(image)) {
-        return send(res, 400, { error: 'Send the photo as a JPEG, PNG or WebP data URL.' });
+      try { body = await readJson(req); } catch { return send(res, 413, { error: 'Those photos are too large.' }); }
+      const views = {};
+      const given = body.views || { front: body.image };
+      for (const name of VIEWS) {
+        const image = given[name];
+        if (image == null) continue;
+        if (typeof image !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(image)) {
+          return send(res, 400, { error: 'Send each photo as a JPEG, PNG or WebP data URL.' });
+        }
+        if (image.length > MAX_IMAGE_BYTES * 1.37) return send(res, 413, { error: 'One of the photos is too large.' });
+        views[name] = image;
       }
-      if (image.length > MAX_IMAGE_BYTES * 1.37) return send(res, 413, { error: 'That image is too large.' });
-      const job = await fal(`${QUEUE}/${MODEL}`, {
-        method: 'POST',
-        // Always with colours: the LEGO build takes its brick colours from them.
-        body: JSON.stringify({ input_image_url: image, textured_mesh: true }),
-      });
+      if (!views.front) return send(res, 400, { error: 'A photo of the front is needed.' });
+      const job = await fal(`${QUEUE}/${MODEL}`, { method: 'POST', body: JSON.stringify(input(views)) });
       return send(res, 200, { id: job.request_id });
     }
 
     if (req.method === 'GET') {
       const id = new URL(req.url, 'http://x').searchParams.get('id') || '';
       if (!/^[0-9a-f-]{16,64}$/i.test(id)) return send(res, 400, { error: 'Missing or invalid job id.' });
-      const status = await fal(`${QUEUE}/${APP}/requests/${id}/status`);
+      const app = appOf(MODEL);
+      const status = await fal(`${QUEUE}/${app}/requests/${id}/status`);
       if (status.status !== 'COMPLETED') {
         return send(res, 200, { status: status.status, position: status.queue_position });
       }
-      const result = await fal(`${QUEUE}/${APP}/requests/${id}`);
-      const url = result.model_mesh && result.model_mesh.url;
+      const result = await fal(`${QUEUE}/${app}/requests/${id}`);
+      const url = (result.model_mesh && result.model_mesh.url) || (result.model_glb && result.model_glb.url) ||
+        (result.model_urls && result.model_urls.glb && result.model_urls.glb.url);
       if (!url) return send(res, 502, { error: 'The model finished without a 3D file.' });
       return send(res, 200, { status: 'COMPLETED', modelUrl: url });
     }

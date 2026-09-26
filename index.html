@@ -42,8 +42,8 @@
         <p id="notice" class="notice" hidden></p>
         <div class="ai3d" data-source="image" hidden>
           <button id="ai3dBtn" type="button" class="ai-btn"><span aria-hidden="true">✦</span> Generate 3D model</button>
-          <p class="fine">Our AI builds the whole object from your photo, back included, in about a minute.
-            Works best with one object on a plain background.</p>
+          <p class="fine">Our AI builds the whole object from your photo in about a minute. For a more accurate
+            back and sides, add photos of them too (optional). Works best with one object on a plain background.</p>
         </div>
         <div class="samples">
           <span>Or try a sample</span>
@@ -128,6 +128,15 @@
           <h2 id="emptyTitle">Build anything in LEGO</h2>
           <p id="emptyText">Drop in a photo and our AI turns it into a 3D model, or upload a 3D model you already have.
             You get a brick-by-brick build, printable instructions, and every real LEGO piece you need, ready to order.</p>
+          <div id="viewsBox" class="views" hidden>
+            <p class="views-tip"><b>More photos, more accurate model:</b> walk around it and add the back and sides (optional).</p>
+            <div class="view-slots">
+              <label class="view-slot" data-view="back"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Back</span></label>
+              <label class="view-slot" data-view="left"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Left side</span></label>
+              <label class="view-slot" data-view="right"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Right side</span></label>
+              <label class="view-slot" data-view="top"><input type="file" accept="image/*" hidden><span class="vs-add">+</span><span class="vs-name">Top</span></label>
+            </div>
+          </div>
           <div class="empty-actions">
             <button id="emptyGenerate" type="button" class="big-btn primary" hidden>✦ Generate 3D model</button>
             <button id="emptyChoose" type="button" class="big-btn primary">Choose a photo or 3D model</button>

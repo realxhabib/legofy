@@ -7,7 +7,8 @@ don't want, download step-by-step instructions, and order every piece.
 
 1. **Start with something:**
    - **A photo:** drop it in (JPEG, PNG or an iPhone HEIC) and press **Generate 3D model**. The AI models
-     the whole object, back included, in about a minute.
+     the whole object in a minute or two. Optionally add photos of the **back, left, right and top** for
+     a more accurate back and sides.
    - **A 3D model:** drop in a GLB, OBJ (with its `.mtl` and texture), PLY, STL or USDZ, for example a scan
      exported from Scaniverse, Polycam or KIRI Engine. Apple's binary USDZ can't be read by browsers yet.
      If it comes in lying on its side, change **Which way is up?**.
@@ -46,7 +47,7 @@ so it only works on the Vercel deployment.
 Import the repo in Vercel with no build command and `/` as the output directory. The `api/` folder
 becomes the serverless function.
 
-**Photo → 3D model** uses Hunyuan3D v2 on fal.ai through `api/generate-3d.js`. Visitors never see the
+**Photo → 3D model** uses Hunyuan 3D v3.1 Pro on fal.ai through `api/generate-3d.js` (front photo plus any of back / left / right / top). Visitors never see the
 provider's name, and the key never reaches the browser. The function holds the key, only accepts requests
 from the site itself, and uses the provider's queue so slow generations don't hit the function's time
 limit. To turn it on, create a key at fal.ai, then in Vercel open **Settings → Environment Variables**,

@@ -5,7 +5,7 @@
     file: $('file'), dropzone: $('dropzone'), preview: $('preview'), modelCard: $('modelCard'),
     sample3d: $('sample3d'), sampleStarship: $('sampleStarship'), notice: $('notice'), ai3dBtn: $('ai3dBtn'),
     emptyPhoto: $('emptyPhoto'), emptyTitle: $('emptyTitle'), emptyText: $('emptyText'), emptyStatus: $('emptyStatus'),
-    emptyGenerate: $('emptyGenerate'), emptyChoose: $('emptyChoose'), emptySample: $('emptySample'),
+    emptyGenerate: $('emptyGenerate'), viewsBox: $('viewsBox'), emptyChoose: $('emptyChoose'), emptySample: $('emptySample'),
     edit: $('edit'), editBar: $('editBar'), editLargest: $('editLargest'), editUndo: $('editUndo'),
     editReset: $('editReset'), editDone: $('editDone'),
     buyBox: $('buyBox'), buyParts: $('buyParts'), buyLego: $('buyLego'), buyParts2: $('buyParts2'), saveXml: $('saveXml'),
@@ -108,7 +108,8 @@
 
   // A photo isn't built directly: it's shown, ready for the AI to turn it into a 3D model.
   function useImage(img, previewSrc) {
-    state.source = { kind: 'image', img };
+    state.source = { kind: 'image', img, views: {} };
+    renderViewSlots();
     state.model = null;
     setEditing(false);
     setPlaying(false);
@@ -130,9 +131,10 @@
     el.empty.querySelector('.empty-bricks').hidden = photo;
     el.emptyTitle.textContent = photo ? 'Ready to make it 3D' : 'Build anything in LEGO';
     el.emptyText.textContent = photo
-      ? 'Our AI builds a full 3D model of this object, back included (about a minute), then we turn it into LEGO.'
+      ? 'Our AI builds a full 3D model of this object (a minute or two), then we turn it into LEGO.'
       : el.emptyText.dataset.welcome || (el.emptyText.dataset.welcome = el.emptyText.textContent);
     el.emptyGenerate.hidden = !photo;
+    el.viewsBox.hidden = !photo;
     el.emptyChoose.textContent = photo ? 'Choose another' : 'Choose a photo or 3D model';
     el.emptyChoose.classList.toggle('primary', !photo);
     el.emptySample.hidden = photo;
@@ -349,41 +351,115 @@
     el.emptyStatus.classList.toggle('error', isError);
   }
 
+  // ---------- extra photos (back, sides, top) for a more accurate model ----------
+
+  const VIEW_NAMES = { back: 'Back', left: 'Left side', right: 'Right side', top: 'Top' };
+
+  // A photo file as something drawable (HEIC decoded like the main photo).
+  async function readPhoto(file) {
+    if (/\.(heic|heif)$/i.test(file.name) || /hei[cf]/.test(file.type)) {
+      const [image] = await L.decodeHeic(await state.T.loadHeif(), new Uint8Array(await file.arrayBuffer()));
+      if (!image) throw new Error('no image inside');
+      return image;
+    }
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    await img.decode();
+    return img;
+  }
+
+  function renderViewSlots() {
+    const views = (state.source && state.source.views) || {};
+    for (const slot of el.viewsBox.querySelectorAll('.view-slot')) {
+      const name = slot.dataset.view, img = views[name];
+      slot.classList.toggle('filled', !!img);
+      slot.style.backgroundImage = img ? `url(${img.thumb})` : '';
+      slot.querySelector('.vs-remove')?.remove();
+      if (img) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'vs-remove';
+        x.setAttribute('aria-label', `Remove the ${VIEW_NAMES[name].toLowerCase()} photo`);
+        x.textContent = '×';
+        slot.appendChild(x);
+      }
+    }
+  }
+
+  for (const slot of el.viewsBox.querySelectorAll('.view-slot')) {
+    const input = slot.querySelector('input');
+    slot.addEventListener('click', (e) => {
+      if (!e.target.closest('.vs-remove')) return;
+      e.preventDefault();
+      delete state.source.views[slot.dataset.view];
+      renderViewSlots();
+    });
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      input.value = '';
+      if (!file || !state.source || state.source.kind !== 'image') return;
+      try {
+        const img = await readPhoto(file);
+        img.thumb = photoAsJpeg(img, 240);
+        state.source.views[slot.dataset.view] = img;
+        renderViewSlots();
+      } catch (err) {
+        console.error(err);
+        notice(`Couldn't read that photo: ${err.message || err}`, true);
+      }
+    });
+  }
+
+  // One AI job: send the photos, wait, download the model. onStatus(text) reports progress.
+  async function runAiJob(photos, onStatus) {
+    const started = Date.now();
+    const { id } = await callAi3d({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ views: photos }),
+    });
+    let modelUrl = null;
+    while (!modelUrl) {
+      await new Promise((r) => setTimeout(r, 2500));
+      const secs = Math.round((Date.now() - started) / 1000);
+      if (secs > 600) throw new Error('It\'s taking too long; try again in a bit.');
+      const job = await callAi3d({}, `?id=${encodeURIComponent(id)}`);
+      if (job.status === 'COMPLETED') modelUrl = job.modelUrl;
+      else if (job.status === 'IN_QUEUE') onStatus(`waiting${job.position ? ` (${job.position} ahead)` : ''}… ${secs}s`);
+      else onStatus(`building… ${secs}s`);
+    }
+    onStatus('downloading…');
+    const r = await fetch(modelUrl);
+    if (!r.ok) throw new Error(`couldn't download the model (${r.status})`);
+    const blob = await r.blob();
+    return { blob, secs: Math.round((Date.now() - started) / 1000), mb: blob.size / 1e6 };
+  }
+
+  async function openAiModel(src, result, label) {
+    const file = new File([result.blob], `${label}.glb`, { type: 'model/gltf-binary' });
+    await loadModelFiles([file]);
+    if (state.source.kind === 'model') {
+      state.source.photo = src;
+      state.source.name = label;
+      el.modelCard.querySelector('strong').textContent = label;
+    }
+  }
+
   async function generate3d() {
     const src = state.source;
     if (!src || !src.img || state.generating) return;
     state.generating = true;
     el.ai3dBtn.disabled = el.emptyGenerate.disabled = true;
-    const started = Date.now();
     try {
-      aiProgress('Sending your photo…');
-      const { id } = await callAi3d({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: photoAsJpeg(src.img, 1024) }),
-      });
-      let modelUrl = null;
-      while (!modelUrl) {
-        await new Promise((r) => setTimeout(r, 2500));
-        const secs = Math.round((Date.now() - started) / 1000);
-        if (secs > 600) throw new Error('It\'s taking too long; try again in a bit.');
-        const job = await callAi3d({}, `?id=${encodeURIComponent(id)}`);
-        if (job.status === 'COMPLETED') modelUrl = job.modelUrl;
-        else if (job.status === 'IN_QUEUE') aiProgress(`Waiting for the AI${job.position ? ` (${job.position} ahead of you)` : ''}… ${secs}s`);
-        else aiProgress(`Building your 3D model… ${secs}s (usually about a minute)`);
-      }
-      aiProgress('Downloading your 3D model…');
-      const r = await fetch(modelUrl);
-      if (!r.ok) throw new Error(`couldn't download the model (${r.status})`);
+      // Every photo as a JPEG no bigger than 1024 px (keeps the upload small).
+      const photos = { front: photoAsJpeg(src.img, 1024) };
+      for (const [name, img] of Object.entries(src.views || {})) photos[name] = photoAsJpeg(img, 1024);
+      const count = Object.keys(photos).length;
+      aiProgress(`Sending ${count === 1 ? 'your photo' : `${count} photos`}…`);
+      const result = await runAiJob(photos, (t) => aiProgress(`Building your 3D model: ${t} (usually a minute or two)`));
       if (state.source !== src) return; // they moved on to something else meanwhile
-      const file = new File([await r.blob()], 'Your 3D model.glb', { type: 'model/gltf-binary' });
-      await loadModelFiles([file]);
-      if (state.source.kind === 'model') {
-        state.source.photo = src;
-        state.source.name = 'Your 3D model';
-        el.modelCard.querySelector('strong').textContent = 'Your 3D model';
-        notice('Here\'s your model. Anything extra? Use ✂ Remove parts under the build to delete it.');
-      }
+      await openAiModel(src, result, 'Your 3D model');
+      notice('Here\'s your model. Anything extra? Use ✂ Remove parts under the build to delete it.');
     } catch (err) {
       console.error(err);
       aiProgress(`Couldn't make the 3D model: ${err.message || err}`, true);
@@ -392,6 +468,8 @@
       el.ai3dBtn.disabled = el.emptyGenerate.disabled = false;
     }
   }
+
+
   el.ai3dBtn.addEventListener('click', generate3d);
   el.emptyGenerate.addEventListener('click', generate3d);
 
